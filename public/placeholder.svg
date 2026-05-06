@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500" viewBox="0 0 400 500">
+  <rect width="400" height="500" fill="#f5f0eb"/>
+  <text x="200" y="240" text-anchor="middle" font-family="system-ui,sans-serif" font-size="16" fill="#c4b5a5">No Image</text>
+  <path d="M185 270 l15-15 l15 15 l-7.5 0 l0 10 l-15 0 l0-10z" fill="#c4b5a5" opacity="0.5" transform="rotate(180,200,275)"/>
+</svg>
