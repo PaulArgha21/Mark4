@@ -295,11 +295,11 @@ function LoginContent() {
       </div>
 
       {/* Watermark logo behind the form */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 lg:left-[45%]">
+      <div className="absolute inset-0 flex items-start justify-center pointer-events-none z-0 lg:left-[45%] lg:items-center">
         <img
-          src="/mylogo.png"
+          src="/logo-new.png"
           alt=""
-          className="w-[300px] h-[300px] md:w-[380px] md:h-[380px] object-contain opacity-[0.04]"
+          className="w-[280px] h-[280px] md:w-[380px] md:h-[380px] object-contain opacity-[0.04] mt-8 md:mt-0"
           draggable={false}
         />
       </div>

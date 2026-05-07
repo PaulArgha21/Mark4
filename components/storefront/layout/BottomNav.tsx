@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -42,6 +42,8 @@ const navItems = [
   { label: 'Account',  href: '/account',   icon: User },
 ]
 
+const PANEL_HEIGHT = 500
+
 export function BottomNav() {
   const pathname = usePathname()
   const router = useRouter()
@@ -52,30 +54,85 @@ export function BottomNav() {
 
   const [isPanelOpen, setIsPanelOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<PanelTab>('recent')
+  const [isDragging, setIsDragging] = useState(false)
 
-  // Drag to dismiss
-  const panelY = useMotionValue(0)
-  const panelOpacity = useTransform(panelY, [0, 300], [1, 0])
+  // sheetY: 0 = fully open, PANEL_HEIGHT = fully closed (off-screen)
+  const sheetY = useMotionValue(PANEL_HEIGHT)
+  const backdropOpacity = useTransform(sheetY, [0, PANEL_HEIGHT], [1, 0])
+
+  // Touch tracking for nav bar swipe-up
+  const touchStartY = useRef(0)
+  const touchStartTime = useRef(0)
+  const isTouchDragging = useRef(false)
+
+  const snapOpen = useCallback(() => {
+    animate(sheetY, 0, { type: 'spring', stiffness: 400, damping: 35 })
+    setIsPanelOpen(true)
+  }, [sheetY])
+
+  const snapClosed = useCallback(() => {
+    animate(sheetY, PANEL_HEIGHT, { type: 'spring', stiffness: 400, damping: 35 })
+    setIsPanelOpen(false)
+  }, [sheetY])
 
   const openPanel = useCallback((tab: PanelTab) => {
     setActiveTab(tab)
-    setIsPanelOpen(true)
-    panelY.set(0)
-  }, [panelY])
+    snapOpen()
+  }, [snapOpen])
 
   const closePanel = useCallback(() => {
-    animate(panelY, 500, { type: 'spring', stiffness: 300, damping: 30 }).then(() => {
-      setIsPanelOpen(false)
-    })
-  }, [panelY])
+    snapClosed()
+  }, [snapClosed])
 
-  const handleDragEnd = useCallback((_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    if (info.offset.y > 100 || info.velocity.y > 500) {
-      closePanel()
+  // Panel drag end — decide snap direction
+  const handlePanelDragEnd = useCallback((_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    setIsDragging(false)
+    const current = sheetY.get()
+    if (info.velocity.y > 400 || current > PANEL_HEIGHT * 0.5) {
+      snapClosed()
     } else {
-      animate(panelY, 0, { type: 'spring', stiffness: 400, damping: 30 })
+      snapOpen()
     }
-  }, [closePanel, panelY])
+  }, [sheetY, snapOpen, snapClosed])
+
+  // Nav bar touch handlers — directly control sheetY without Framer drag
+  const handleNavTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartY.current = e.touches[0].clientY
+    touchStartTime.current = Date.now()
+    isTouchDragging.current = false
+  }, [])
+
+  const handleNavTouchMove = useCallback((e: React.TouchEvent) => {
+    const deltaY = touchStartY.current - e.touches[0].clientY
+    if (Math.abs(deltaY) > 8) {
+      isTouchDragging.current = true
+      setIsDragging(true)
+    }
+    if (isTouchDragging.current && deltaY > 0) {
+      // Swiping up — move sheet from PANEL_HEIGHT toward 0
+      const newY = Math.max(0, PANEL_HEIGHT - deltaY)
+      sheetY.set(newY)
+    }
+  }, [sheetY])
+
+  const handleNavTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!isTouchDragging.current) {
+      setIsDragging(false)
+      return
+    }
+    // Calculate velocity
+    const deltaY = touchStartY.current - e.changedTouches[0].clientY
+    const elapsed = (Date.now() - touchStartTime.current) / 1000
+    const velocity = deltaY / Math.max(elapsed, 0.05)
+
+    if (velocity > 500 || sheetY.get() < PANEL_HEIGHT * 0.5) {
+      if (!activeTab) setActiveTab('recent')
+      snapOpen()
+    } else {
+      snapClosed()
+    }
+    setTimeout(() => setIsDragging(false), 50)
+  }, [sheetY, snapOpen, snapClosed, activeTab])
 
   const handleNavTap = useCallback((label: string, href: string) => {
     if (label === 'Cart') {
@@ -94,113 +151,104 @@ export function BottomNav() {
 
   return (
     <>
-      {/* ═══════ SLIDE-UP PANEL ═══════ */}
-      <AnimatePresence>
-        {isPanelOpen && (
-          <>
-            {/* Backdrop */}
-            <motion.div
-              className="fixed inset-0 z-40 bg-black/30 md:hidden"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={closePanel}
-            />
+      {/* ═══════ BACKDROP (always rendered, opacity driven by sheetY) ═══════ */}
+      <motion.div
+        className="fixed inset-0 z-40 bg-black/30 md:hidden"
+        style={{ opacity: backdropOpacity, pointerEvents: isPanelOpen ? 'auto' : 'none' }}
+        onClick={closePanel}
+      />
 
-            {/* Panel */}
-            <motion.div
-              className="fixed left-0 right-0 bottom-0 z-50 md:hidden"
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', stiffness: 350, damping: 35 }}
-              style={{ y: panelY, opacity: panelOpacity }}
-              drag="y"
-              dragConstraints={{ top: 0 }}
-              dragElastic={0.2}
-              onDragEnd={handleDragEnd}
-            >
-              <div className="bg-white dark:bg-clay-bg-elevated rounded-t-3xl overflow-hidden"
-                style={{ boxShadow: '0 -8px 40px rgba(0,0,0,0.12)', maxHeight: '70vh' }}>
+      {/* ═══════ SLIDE-UP PANEL (always rendered, translated by sheetY) ═══════ */}
+      <motion.div
+        className="fixed left-0 right-0 bottom-0 z-50 md:hidden"
+        style={{ y: sheetY }}
+        drag="y"
+        dragConstraints={{ top: 0, bottom: PANEL_HEIGHT }}
+        dragElastic={0.08}
+        dragMomentum={false}
+        onDragStart={() => setIsDragging(true)}
+        onDragEnd={handlePanelDragEnd}
+      >
+        <div className="bg-clay-bg-elevated rounded-t-3xl overflow-hidden"
+          style={{ boxShadow: '0 -8px 40px rgba(0,0,0,0.12)', maxHeight: '70vh' }}>
 
-                {/* Handle bar */}
-                <div className="flex justify-center pt-3 pb-1">
-                  <div className="w-10 h-1 rounded-full bg-clay-border-light" />
-                </div>
+          {/* Handle bar — large touch target for dragging */}
+          <div className="flex justify-center pt-3 pb-1 cursor-grab active:cursor-grabbing touch-none">
+            <div className="w-10 h-1 rounded-full bg-clay-border-light" />
+          </div>
 
-                {/* Tab switcher */}
-                <div className="flex items-center gap-1 px-4 pb-2">
-                  {([
-                    { key: 'recent', label: 'Recent', icon: Clock },
-                    { key: 'cart', label: `Cart${cartCount > 0 ? ` (${cartCount})` : ''}`, icon: ShoppingBag },
-                    { key: 'wishlist', label: 'Wishlist', icon: Heart },
-                    { key: 'size', label: 'Size', icon: Ruler },
-                  ] as { key: PanelTab; label: string; icon: typeof Clock }[]).map(tab => (
-                    <button
-                      key={tab.key}
-                      onClick={() => setActiveTab(tab.key)}
-                      className={cn(
-                        'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all',
-                        activeTab === tab.key
-                          ? 'bg-clay-rose text-white'
-                          : 'bg-clay-bg-sunken/60 text-clay-text-secondary hover:bg-clay-bg-sunken'
-                      )}
-                    >
-                      <tab.icon size={13} />
-                      {tab.label}
-                    </button>
-                  ))}
-                  <button onClick={closePanel} className="ml-auto p-1.5 rounded-full hover:bg-clay-bg-sunken transition-colors">
-                    <X size={16} className="text-clay-text-muted" />
-                  </button>
-                </div>
+          {/* Tab switcher */}
+          <div className="flex items-center gap-1 px-4 pb-2">
+            {([
+              { key: 'recent', label: 'Recent', icon: Clock },
+              { key: 'cart', label: `Cart${cartCount > 0 ? ` (${cartCount})` : ''}`, icon: ShoppingBag },
+              { key: 'wishlist', label: 'Wishlist', icon: Heart },
+              { key: 'size', label: 'Size', icon: Ruler },
+            ] as { key: PanelTab; label: string; icon: typeof Clock }[]).map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all',
+                  activeTab === tab.key
+                    ? 'bg-clay-rose text-white'
+                    : 'bg-clay-bg-sunken/60 text-clay-text-secondary hover:bg-clay-bg-sunken'
+                )}
+              >
+                <tab.icon size={13} />
+                {tab.label}
+              </button>
+            ))}
+            <button onClick={closePanel} className="ml-auto p-1.5 rounded-full hover:bg-clay-bg-sunken transition-colors">
+              <X size={16} className="text-clay-text-muted" />
+            </button>
+          </div>
 
-                {/* Content area */}
-                <div className="overflow-y-auto px-4 pb-20" style={{ maxHeight: 'calc(70vh - 80px)' }}>
-                  <AnimatePresence mode="wait">
-                    {activeTab === 'recent' && (
-                      <motion.div key="recent" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.15 }}>
-                        <RecentTab items={recentItems} />
-                      </motion.div>
-                    )}
-                    {activeTab === 'cart' && (
-                      <motion.div key="cart" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.15 }}>
-                        <CartTab cart={cart} removeFromCart={removeFromCart} updateQuantity={updateQuantity} onViewCart={() => { closePanel(); router.push('/cart') }} />
-                      </motion.div>
-                    )}
-                    {activeTab === 'wishlist' && (
-                      <motion.div key="wishlist" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.15 }}>
-                        <WishlistTab items={wishlistProducts} onViewAll={() => { closePanel(); router.push('/account/wishlist') }} />
-                      </motion.div>
-                    )}
-                    {activeTab === 'size' && (
-                      <motion.div key="size" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.15 }}>
-                        <SizeTab
-                          clothingSize={clothingSize} shoeSize={shoeSize}
-                          setClothingSize={setClothingSize} setShoeSize={setShoeSize}
-                        />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+          {/* Content area */}
+          <div className="overflow-y-auto px-4 pb-20" style={{ maxHeight: 'calc(70vh - 80px)' }}>
+            <AnimatePresence mode="wait">
+              {activeTab === 'recent' && (
+                <motion.div key="recent" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.15 }}>
+                  <RecentTab items={recentItems} />
+                </motion.div>
+              )}
+              {activeTab === 'cart' && (
+                <motion.div key="cart" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.15 }}>
+                  <CartTab cart={cart} removeFromCart={removeFromCart} updateQuantity={updateQuantity} onViewCart={() => { closePanel(); router.push('/cart') }} />
+                </motion.div>
+              )}
+              {activeTab === 'wishlist' && (
+                <motion.div key="wishlist" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.15 }}>
+                  <WishlistTab items={wishlistProducts} onViewAll={() => { closePanel(); router.push('/account/wishlist') }} />
+                </motion.div>
+              )}
+              {activeTab === 'size' && (
+                <motion.div key="size" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.15 }}>
+                  <SizeTab
+                    clothingSize={clothingSize} shoeSize={shoeSize}
+                    setClothingSize={setClothingSize} setShoeSize={setShoeSize}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      </motion.div>
 
       {/* ═══════ BOTTOM NAV BAR ═══════ */}
-      <motion.nav
+      <nav
         className="fixed bottom-0 left-0 right-0 z-40 md:hidden"
-        animate={{ y: isPanelOpen ? 80 : 0 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 35 }}
+        style={{ transform: isPanelOpen ? 'translateY(80px)' : 'translateY(0)', transition: isDragging ? 'none' : 'transform 0.35s cubic-bezier(0.32, 0.72, 0, 1)' }}
+        onTouchStart={handleNavTouchStart}
+        onTouchMove={handleNavTouchMove}
+        onTouchEnd={handleNavTouchEnd}
       >
         {/* Swipe-up pill + active size badge */}
         {!isPanelOpen && (
           <div className="flex justify-center items-center gap-2 -mb-1">
             {hasPreference && (
               <motion.button
-                onClick={() => openPanel('size')}
+                onClick={() => { if (!isDragging) openPanel('size') }}
                 className="flex items-center gap-1 px-3 py-1 rounded-t-xl text-white"
                 style={{ background: 'linear-gradient(135deg, #e84393, #a29bfe)', boxShadow: '0 -2px 12px rgba(232,67,147,0.2)' }}
                 whileTap={{ scale: 0.92 }}
@@ -212,7 +260,7 @@ export function BottomNav() {
               </motion.button>
             )}
             <motion.button
-              onClick={() => openPanel('recent')}
+              onClick={() => { if (!isDragging) openPanel('recent') }}
               className="flex items-center gap-1 px-4 py-1 rounded-t-xl backdrop-blur-xl bg-white/80 dark:bg-clay-bg-base/80 border border-b-0 border-white/30"
               style={{ boxShadow: '0 -2px 12px rgba(0,0,0,0.04)' }}
               whileTap={{ scale: 0.95 }}
@@ -234,7 +282,7 @@ export function BottomNav() {
               )
 
               return (
-                <button key={href} onClick={() => handleNavTap(label, href)} className="flex-1">
+                <button key={href} onClick={() => { if (!isDragging) handleNavTap(label, href) }} className="flex-1">
                   <motion.div
                     className="flex flex-col items-center justify-center gap-[3px] py-1.5 relative"
                     whileTap={{ scale: 0.88 }}
@@ -284,7 +332,7 @@ export function BottomNav() {
             })}
           </div>
         </div>
-      </motion.nav>
+      </nav>
     </>
   )
 }

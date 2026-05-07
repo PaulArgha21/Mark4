@@ -32,31 +32,53 @@ export default function HomePage() {
     errorRetryCount: 2,
   })
 
-  // Measure scroll distance at which category strip pins to header
+  // Sentinel ref: a zero-height div placed right before the sticky bar
+  const sentinelRef = useRef<HTMLDivElement>(null)
   const catRef = useRef<HTMLDivElement>(null)
-  const [pinScrollY, setPinScrollY] = useState(600) // sensible default
+  const catWrapRef = useRef<HTMLDivElement>(null)
+  const [isCatPinned, setIsCatPinned] = useState(false)
+  const pinnedLock = useRef(false) // prevents oscillation
 
-  const measure = useCallback(() => {
-    if (catRef.current) {
-      // Category pins when its top hits below header + delivery bar
-      // Mobile: 52px header + 40px delivery bar = 92px, Desktop: 72px header (delivery hidden)
-      const headerH = window.innerWidth >= 768 ? 72 : 92
-      const catTop = catRef.current.offsetTop
-      setPinScrollY(Math.max(catTop - headerH, 200))
-    }
-  }, [])
-
+  // IntersectionObserver to detect exact moment the sticky bar pins
+  // rootMargin top = -(header 52px + delivery 40px) = -92px
+  // When sentinel scrolls above that line, the bar is stuck
   useEffect(() => {
-    // Measure after layout settles (images load, etc.)
-    measure()
-    const timer = setTimeout(measure, 500)
-    window.addEventListener('resize', measure)
-    return () => { window.removeEventListener('resize', measure); clearTimeout(timer) }
-  }, [measure, data])
+    const sentinel = sentinelRef.current
+    if (!sentinel) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const shouldPin = !entry.isIntersecting
+        if (shouldPin === pinnedLock.current) return // no change
+        pinnedLock.current = shouldPin
+        // Lock the wrapper height before shrinking to prevent flow shift
+        if (shouldPin && catWrapRef.current) {
+          catWrapRef.current.style.minHeight = catWrapRef.current.offsetHeight + 'px'
+        }
+        setIsCatPinned(shouldPin)
+        // Release height lock after expanding back
+        if (!shouldPin && catWrapRef.current) {
+          setTimeout(() => {
+            if (catWrapRef.current) catWrapRef.current.style.minHeight = ''
+          }, 450)
+        }
+      },
+      { threshold: 0, rootMargin: '-92px 0px 0px 0px' }
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [data])
 
+  // Hero fade — estimate based on sentinel position
   const { scrollY } = useScroll()
-  // Fade hero+story from 1→0 — fully transparent at 90% of the pin distance
-  const fadeOpacity = useTransform(scrollY, [0, pinScrollY * 0.9], [1, 0])
+  const [fadeEnd, setFadeEnd] = useState(600)
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (el) {
+      const top = el.getBoundingClientRect().top + window.scrollY
+      setFadeEnd(Math.max(top - 92, 200))
+    }
+  }, [data])
+  const fadeOpacity = useTransform(scrollY, [0, fadeEnd * 0.9], [1, 0])
 
   const { preferredSize } = useSizePreference()
 
@@ -119,8 +141,8 @@ export default function HomePage() {
         </motion.section>
       ) : null,
     CATEGORIES: () => (
-      <div className="py-3 md:py-5 md:px-4 md:max-w-7xl md:mx-auto">
-        <CategoryGrid />
+      <div className={isCatPinned ? 'py-0' : 'py-3 md:py-5 md:px-4 md:max-w-7xl md:mx-auto'} style={{ transition: 'padding 0.3s cubic-bezier(0.32,0.72,0,1)' }}>
+        <CategoryGrid isCompact={isCatPinned} />
       </div>
     ),
     FLASH_SALE: () =>
@@ -271,24 +293,30 @@ export default function HomePage() {
           </motion.div>
         </motion.div>
 
+        {/* ── Sentinel: triggers compact mode exactly when it crosses behind header+delivery bar ── */}
+        {categoriesSection && <div ref={sentinelRef} className="h-0 w-full" aria-hidden="true" />}
+
         {/* ── Sticky Categories — pins below header+delivery on scroll ── */}
         {categoriesSection && (
-          <div
-            ref={catRef}
-            className="sticky z-30"
-            style={{
-              top: 'calc(52px + 40px - 2px)',
-              contain: 'layout style',
-              isolation: 'isolate',
-            }}
-          >
+          <div ref={catWrapRef}>
             <div
-              className="bg-clay-bg-elevated border-b border-clay-border-light"
+              ref={catRef}
+              className="sticky z-30"
               style={{
-                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                top: 'calc(52px + 40px - 2px)',
+                contain: 'layout style',
+                isolation: 'isolate',
               }}
             >
-              {sectionMap.CATEGORIES()}
+              <div
+                className="bg-clay-bg-elevated border-b border-clay-border-light overflow-hidden"
+                style={{
+                  boxShadow: isCatPinned ? '0 4px 12px rgba(0,0,0,0.06)' : '0 2px 8px rgba(0,0,0,0.04)',
+                  transition: 'box-shadow 0.3s ease',
+                }}
+              >
+                {sectionMap.CATEGORIES()}
+              </div>
             </div>
           </div>
         )}

@@ -10,7 +10,7 @@ interface AprditeLogoProps {
 export function AprditeLogoIcon({ size = 36, className }: AprditeLogoProps) {
   return (
     <img
-      src="/mylogo.png"
+      src="/logo-new.png"
       alt="Aprdite"
       width={size}
       height={size}
