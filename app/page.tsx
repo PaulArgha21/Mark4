@@ -35,9 +35,7 @@ export default function HomePage() {
   // Sentinel ref: a zero-height div placed right before the sticky bar
   const sentinelRef = useRef<HTMLDivElement>(null)
   const catRef = useRef<HTMLDivElement>(null)
-  const catWrapRef = useRef<HTMLDivElement>(null)
   const [isCatPinned, setIsCatPinned] = useState(false)
-  const pinnedLock = useRef(false) // prevents oscillation
 
   // IntersectionObserver to detect exact moment the sticky bar pins
   // rootMargin top = -(header 52px + delivery 40px) = -92px
@@ -47,20 +45,7 @@ export default function HomePage() {
     if (!sentinel) return
     const observer = new IntersectionObserver(
       ([entry]) => {
-        const shouldPin = !entry.isIntersecting
-        if (shouldPin === pinnedLock.current) return // no change
-        pinnedLock.current = shouldPin
-        // Lock the wrapper height before shrinking to prevent flow shift
-        if (shouldPin && catWrapRef.current) {
-          catWrapRef.current.style.minHeight = catWrapRef.current.offsetHeight + 'px'
-        }
-        setIsCatPinned(shouldPin)
-        // Release height lock after expanding back
-        if (!shouldPin && catWrapRef.current) {
-          setTimeout(() => {
-            if (catWrapRef.current) catWrapRef.current.style.minHeight = ''
-          }, 450)
-        }
+        setIsCatPinned(!entry.isIntersecting)
       },
       { threshold: 0, rootMargin: '-92px 0px 0px 0px' }
     )
@@ -298,25 +283,23 @@ export default function HomePage() {
 
         {/* ── Sticky Categories — pins below header+delivery on scroll ── */}
         {categoriesSection && (
-          <div ref={catWrapRef}>
+          <div
+            ref={catRef}
+            className="sticky z-30"
+            style={{
+              top: 'calc(52px + 40px - 2px)',
+              contain: 'layout style',
+              isolation: 'isolate',
+            }}
+          >
             <div
-              ref={catRef}
-              className="sticky z-30"
+              className="bg-clay-bg-elevated border-b border-clay-border-light overflow-hidden"
               style={{
-                top: 'calc(52px + 40px - 2px)',
-                contain: 'layout style',
-                isolation: 'isolate',
+                boxShadow: isCatPinned ? '0 4px 12px rgba(0,0,0,0.06)' : '0 2px 8px rgba(0,0,0,0.04)',
+                transition: 'box-shadow 0.3s ease',
               }}
             >
-              <div
-                className="bg-clay-bg-elevated border-b border-clay-border-light overflow-hidden"
-                style={{
-                  boxShadow: isCatPinned ? '0 4px 12px rgba(0,0,0,0.06)' : '0 2px 8px rgba(0,0,0,0.04)',
-                  transition: 'box-shadow 0.3s ease',
-                }}
-              >
-                {sectionMap.CATEGORIES()}
-              </div>
+              {sectionMap.CATEGORIES()}
             </div>
           </div>
         )}

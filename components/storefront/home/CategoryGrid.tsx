@@ -150,31 +150,43 @@ export function CategoryGrid({ isCompact = false }: { isCompact?: boolean }) {
                   </span>
                 </div>
               </div>
-              {/* Name — morphs: muted small text → punchy 3D brand pill */}
-              <span
-                className="whitespace-nowrap text-center leading-tight"
+              {/* Name — morphs via transform only (no layout reflow) */}
+              <div
+                className="relative"
                 style={{
-                  fontSize: isCompact ? '11px' : '10px',
-                  fontWeight: isCompact ? 800 : 500,
-                  maxWidth: isCompact ? '200px' : '60px',
-                  padding: isCompact ? '5px 12px' : '0px',
-                  borderRadius: isCompact ? '9999px' : '0px',
-                  color: isCompact ? 'var(--clay-rose)' : 'var(--clay-text-muted)',
-                  background: isCompact
-                    ? 'linear-gradient(135deg, rgba(232,67,147,0.08), rgba(253,121,168,0.08))'
-                    : 'transparent',
-                  border: isCompact ? '1px solid rgba(232,67,147,0.2)' : '1px solid transparent',
-                  textShadow: isCompact ? '0 1px 2px rgba(232,67,147,0.15)' : 'none',
-                  boxShadow: isCompact
-                    ? '0 2px 8px rgba(232,67,147,0.12), 0 1px 2px rgba(232,67,147,0.08), inset 0 1px 0 rgba(255,255,255,0.25)'
-                    : 'none',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  transition: 'all 0.4s cubic-bezier(0.32,0.72,0,1)',
+                  transform: isCompact ? 'scale(1)' : 'scale(0.95)',
+                  transformOrigin: 'center',
+                  transition: 'transform 0.35s cubic-bezier(0.32,0.72,0,1)',
+                  willChange: 'transform',
                 }}
               >
-                {cat.name}
-              </span>
+                {/* Decorative pill background — animates without affecting text layout */}
+                <div
+                  className="absolute inset-0 rounded-full"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(232,67,147,0.08), rgba(253,121,168,0.08))',
+                    border: '1px solid rgba(232,67,147,0.2)',
+                    boxShadow: '0 2px 8px rgba(232,67,147,0.12), 0 1px 2px rgba(232,67,147,0.08), inset 0 1px 0 rgba(255,255,255,0.25)',
+                    opacity: isCompact ? 1 : 0,
+                    transform: isCompact ? 'scale(1)' : 'scale(0.9)',
+                    transformOrigin: 'center',
+                    transition: 'opacity 0.3s ease, transform 0.35s cubic-bezier(0.32,0.72,0,1)',
+                    willChange: 'transform, opacity',
+                  }}
+                />
+                <span
+                  className="relative whitespace-nowrap text-center leading-tight inline-block px-3 py-1"
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 600, // constant to avoid layout reflow
+                    color: isCompact ? 'var(--clay-rose)' : 'var(--clay-text-muted)',
+                    textShadow: isCompact ? '0 1px 2px rgba(232,67,147,0.15)' : 'none',
+                    transition: 'color 0.3s ease, text-shadow 0.3s ease',
+                  }}
+                >
+                  {cat.name}
+                </span>
+              </div>
             </div>
           </Link>
         ))}
