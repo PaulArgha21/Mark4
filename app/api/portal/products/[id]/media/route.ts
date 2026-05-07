@@ -1,0 +1,140 @@
+export const runtime = 'nodejs'
+
+import { db } from '@/lib/db'
+import { requirePermission } from '@/lib/permissions'
+import { ok, badRequest, notFound, serverError } from '@/lib/api-response'
+import { logAuditEntry } from '@/lib/audit'
+import { z } from 'zod'
+
+const mediaSchema = z.object({
+  media: z.array(z.object({
+    url: z.string().url(),
+    altText: z.string().optional(),
+    isPrimary: z.boolean().default(false),
+    sortOrder: z.number().default(0),
+    type: z.enum(['IMAGE', 'VIDEO']).default('IMAGE'),
+  })).min(1),
+})
+
+// POST: Add media to a product
+export async function POST(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  const { error, employee } = await requirePermission(request, 'products.edit')
+  if (error) return error
+
+  try {
+    const product = await db.product.findUnique({ where: { id: params.id } })
+    if (!product) return notFound('Product not found')
+
+    const body = await request.json()
+    const parsed = mediaSchema.safeParse(body)
+    if (!parsed.success) return badRequest('Invalid media data', parsed.error.flatten())
+
+    const { media } = parsed.data
+
+    // If any is marked primary, unset existing primary first
+    if (media.some(m => m.isPrimary)) {
+      await db.mediaAsset.updateMany({
+        where: { productId: params.id, isPrimary: true },
+        data: { isPrimary: false },
+      })
+    }
+
+    // Create media assets
+    const created = await db.$transaction(
+      media.map((m, i) => db.mediaAsset.create({
+        data: {
+          productId: params.id,
+          url: m.url,
+          altText: m.altText || product.name,
+          type: m.type,
+          isPrimary: m.isPrimary,
+          sortOrder: m.sortOrder ?? i,
+        },
+      }))
+    )
+
+    logAuditEntry({
+      employeeId: employee!.id,
+      role: employee!.role,
+      action: 'product.media_added',
+      resourceType: 'Product',
+      resourceId: params.id,
+      payload: { context: { count: created.length } },
+    })
+
+    return ok({ count: created.length, ids: created.map(m => m.id) })
+  } catch (err) {
+    console.error('Product media POST error:', err)
+    return serverError()
+  }
+}
+
+// GET: List media for a product
+export async function GET(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  const { error } = await requirePermission(request, 'products.view')
+  if (error) return error
+
+  try {
+    const media = await db.mediaAsset.findMany({
+      where: { productId: params.id },
+      orderBy: { sortOrder: 'asc' },
+    })
+    return ok(media)
+  } catch (err) {
+    console.error('Product media GET error:', err)
+    return serverError()
+  }
+}
+
+// DELETE: Remove a specific media asset
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  const { error, employee } = await requirePermission(request, 'products.edit')
+  if (error) return error
+
+  try {
+    const { searchParams } = new URL(request.url)
+    const mediaId = searchParams.get('mediaId')
+    if (!mediaId) return badRequest('mediaId query param required')
+
+    const asset = await db.mediaAsset.findFirst({
+      where: { id: mediaId, productId: params.id },
+    })
+    if (!asset) return notFound('Media asset not found')
+
+    await db.mediaAsset.delete({ where: { id: mediaId } })
+
+    // If deleted was primary, make the first remaining one primary
+    if (asset.isPrimary) {
+      const first = await db.mediaAsset.findFirst({
+        where: { productId: params.id },
+        orderBy: { sortOrder: 'asc' },
+      })
+      if (first) {
+        await db.mediaAsset.update({ where: { id: first.id }, data: { isPrimary: true } })
+      }
+    }
+
+    logAuditEntry({
+      employeeId: employee!.id,
+      role: employee!.role,
+      action: 'product.media_removed',
+      resourceType: 'Product',
+      resourceId: params.id,
+      payload: { context: { mediaId, url: asset.url } },
+    })
+
+    return ok({ success: true })
+  } catch (err) {
+    console.error('Product media DELETE error:', err)
+    return serverError()
+  }
+}
