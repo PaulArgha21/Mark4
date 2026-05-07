@@ -75,6 +75,18 @@ export function BottomNav() {
     setIsPanelOpen(false)
   }, [sheetY])
 
+  // Prevent body scroll when panel is open or being dragged
+  useEffect(() => {
+    if (isPanelOpen || isDragging) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [isPanelOpen, isDragging])
+
   const openPanel = useCallback((tab: PanelTab) => {
     setActiveTab(tab)
     snapOpen()
@@ -100,6 +112,7 @@ export function BottomNav() {
     touchStartY.current = e.touches[0].clientY
     touchStartTime.current = Date.now()
     isTouchDragging.current = false
+    setIsDragging(true) // Immediate scroll lock
   }, [])
 
   const handleNavTouchMove = useCallback((e: React.TouchEvent) => {
@@ -131,7 +144,7 @@ export function BottomNav() {
     } else {
       snapClosed()
     }
-    setTimeout(() => setIsDragging(false), 50)
+    setIsDragging(false)
   }, [sheetY, snapOpen, snapClosed, activeTab])
 
   const handleNavTap = useCallback((label: string, href: string) => {
