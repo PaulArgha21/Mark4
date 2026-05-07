@@ -111,6 +111,7 @@ const variantSchema = z.object({
   priceDelta: z.number().default(0),
   weight:     z.number().optional(),
   sortOrder:  z.number().default(0),
+  quantity:   z.number().int().min(0).default(0),
 })
 
 const createSchema = z.object({
@@ -122,6 +123,7 @@ const createSchema = z.object({
   basePrice:        z.number().min(0),
   salePrice:        z.number().min(0).optional(),
   costPrice:        z.number().min(0).optional(),
+  isActive:          z.boolean().default(true),
   isFeatured:       z.boolean().default(false),
   metaTitle:        z.string().optional(),
   metaDescription:  z.string().optional(),
@@ -164,6 +166,7 @@ export async function POST(request: Request) {
           basePrice: data.basePrice,
           salePrice: data.salePrice,
           costPrice: data.costPrice,
+          isActive: data.isActive,
           isFeatured: data.isFeatured,
           metaTitle: data.metaTitle,
           metaDescription: data.metaDescription,
@@ -186,7 +189,7 @@ export async function POST(request: Request) {
           },
         })
         await tx.inventory.create({
-          data: { variantId: variant.id, quantity: 0 },
+          data: { variantId: variant.id, quantity: v.quantity },
         })
       }
 

@@ -3,22 +3,31 @@ import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import useSWR from 'swr'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Package, Palette, Save, Loader2, Image as ImageIcon, DollarSign, Search as SearchIcon, Settings, Trash2 } from 'lucide-react'
+import { ArrowLeft, Package, FileText, Layers, Search, Save, Loader2, CheckCircle2 } from 'lucide-react'
 import { PortalShell } from '@/components/portal/layout/PortalShell'
 import { ClayButton } from '@/components/ui/ClayButton'
-import { ImageUploader, UploadedImage } from '@/components/portal/products/ImageUploader'
-import { ColorPicker, ColorOption } from '@/components/portal/products/ColorPicker'
-import { SizeSelector, SizeType } from '@/components/portal/products/SizeSelector'
-import { VariantMatrix, VariantRow } from '@/components/portal/products/VariantMatrix'
+import { BasicInfoSection, BasicInfoValues } from '../../_components/BasicInfoSection'
+import { DescriptionBuilder, DescriptionValues } from '../../_components/DescriptionBuilder'
+import { VariantManager } from '../../_components/VariantManager'
+import { VariantFormValues } from '../../_components/VariantCard'
+import { SeoSection, SeoValues } from '../../_components/SeoSection'
 import { staggerContainer, fadeUpVariants } from '@/lib/animations'
 import { toast } from 'sonner'
 
 const fetcher = (url: string) => fetch(url, { credentials: 'include' }).then(r => r.json()).then(r => r.data)
 
-const PRODUCT_TYPES = ['Clothing', 'Footwear', 'Accessories', 'Jewelry', 'Bags', 'Home & Living', 'Beauty', 'Electronics']
-const MATERIALS = ['Cotton', 'Silk', 'Polyester', 'Linen', 'Wool', 'Denim', 'Chiffon', 'Georgette', 'Velvet', 'Satin', 'Rayon', 'Nylon', 'Leather', 'Faux Leather', 'Suede', 'Canvas']
-const CARE_INSTRUCTIONS = ['Machine Wash', 'Hand Wash Only', 'Dry Clean Only', 'Do Not Bleach', 'Iron Low Heat', 'Do Not Iron', 'Tumble Dry Low', 'Hang Dry', 'Do Not Wring']
-const GST_SLABS = [{ rate: 5, label: '5% (Apparel < ₹1000)' }, { rate: 12, label: '12% (Apparel > ₹1000)' }, { rate: 18, label: '18% (Footwear, Bags)' }, { rate: 28, label: '28% (Luxury)' }]
+type Section = 'basic' | 'description' | 'variants' | 'seo'
+
+const SECTIONS = [
+  { key: 'basic' as Section, label: 'Basic Info', icon: Package },
+  { key: 'description' as Section, label: 'Description', icon: FileText },
+  { key: 'variants' as Section, label: 'Variants', icon: Layers },
+  { key: 'seo' as Section, label: 'SEO', icon: Search },
+]
+
+function slugify(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+}
 
 export default function EditProductPage() {
   const router = useRouter()
@@ -26,179 +35,151 @@ export default function EditProductPage() {
   const productId = params.id as string
 
   const { data: product, isLoading: productLoading } = useSWR(`/api/portal/products/${productId}`, fetcher)
-  const { data: categories } = useSWR('/api/storefront/categories', fetcher)
-  const { data: mediaAssets } = useSWR(`/api/portal/products/${productId}/media`, fetcher)
 
   const [saving, setSaving] = useState(false)
   const [loaded, setLoaded] = useState(false)
-  const [activeSection, setActiveSection] = useState<'basic' | 'media' | 'variants' | 'pricing' | 'seo' | 'advanced'>('basic')
+  const [activeSection, setActiveSection] = useState<Section>('basic')
 
-  // Basic
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [shortDescription, setShortDescription] = useState('')
-  const [brand, setBrand] = useState('')
-  const [categoryId, setCategoryId] = useState('')
-  const [productType, setProductType] = useState('')
-  const [isFeatured, setIsFeatured] = useState(false)
-  const [isActive, setIsActive] = useState(true)
-  const [tags, setTags] = useState<string[]>([])
-  const [tagInput, setTagInput] = useState('')
+  // ── Section State ──
+  const [basicInfo, setBasicInfo] = useState<BasicInfoValues>({
+    name: '', slug: '', shortDescription: '', categoryId: '', productType: 'VARIABLE',
+    fabricType: '', fabricQuality: '', brand: '', tags: [], isFeatured: false, isPublished: true,
+  })
 
-  // Advanced
-  const [material, setMaterial] = useState<string[]>([])
-  const [careInstructions, setCareInstructions] = useState<string[]>([])
-  const [hsnCode, setHsnCode] = useState('')
-  const [gstRate, setGstRate] = useState(12)
-  const [weight, setWeight] = useState('')
-  const [countryOfOrigin, setCountryOfOrigin] = useState('India')
+  const [descriptionInfo, setDescriptionInfo] = useState<DescriptionValues>({
+    fullDescription: '', keyFeatures: [], usageOccasion: [], careInstructions: [], productImages: [],
+  })
 
-  // Pricing
-  const [basePrice, setBasePrice] = useState('')
-  const [salePrice, setSalePrice] = useState('')
-  const [costPrice, setCostPrice] = useState('')
+  const [variants, setVariants] = useState<VariantFormValues[]>([])
 
-  // SEO
-  const [metaTitle, setMetaTitle] = useState('')
-  const [metaDescription, setMetaDescription] = useState('')
+  const [seoInfo, setSeoInfo] = useState<SeoValues>({
+    metaTitle: '', metaDescription: '',
+  })
 
-  // Media
-  const [images, setImages] = useState<UploadedImage[]>([])
-
-  // Variants
-  const [selectedColors, setSelectedColors] = useState<ColorOption[]>([])
-  const [selectedSizes, setSelectedSizes] = useState<string[]>([])
-  const [sizeType, setSizeType] = useState<SizeType>('clothing')
-  const [variants, setVariants] = useState<VariantRow[]>([])
-
-  // Load product data into form
+  // ── Load product data ──
   useEffect(() => {
     if (product && !loaded) {
-      setName(product.name || '')
-      setDescription(product.description || '')
-      setShortDescription(product.shortDescription || '')
-      setBrand(product.brand || '')
-      setCategoryId(product.categoryId || '')
-      setIsFeatured(product.isFeatured || false)
-      setIsActive(product.isActive !== false)
-      setBasePrice(product.basePrice?.toString() || '')
-      setSalePrice(product.salePrice?.toString() || '')
-      setCostPrice(product.costPrice?.toString() || '')
-      setMetaTitle(product.metaTitle || '')
-      setMetaDescription(product.metaDescription || '')
+      setBasicInfo({
+        name: product.name || '',
+        slug: product.slug || '',
+        shortDescription: product.shortDescription || '',
+        categoryId: product.categoryId || '',
+        productType: 'VARIABLE',
+        fabricType: '',
+        fabricQuality: '',
+        brand: product.brand || '',
+        tags: [],
+        isFeatured: product.isFeatured || false,
+        isPublished: product.isActive !== false,
+      })
 
-      // Load variants
+      setDescriptionInfo(prev => ({
+        ...prev,
+        fullDescription: product.description || '',
+      }))
+
+      setSeoInfo({
+        metaTitle: product.metaTitle || '',
+        metaDescription: product.metaDescription || '',
+      })
+
+      // Load variants — group DB variants by color into color-based cards
       if (product.variants?.length) {
-        const loadedVariants: VariantRow[] = product.variants.map((v: any) => ({
-          id: v.id,
-          sku: v.sku || '',
-          size: v.size || '',
-          color: v.color || '',
-          colorHex: v.colorHex || '',
-          priceDelta: v.priceDelta || 0,
-          weight: v.weight || null,
-          stock: v.inventory?.quantity || 0,
-          isActive: v.isActive !== false,
-        }))
-        setVariants(loadedVariants)
-
-        // Reconstruct selected colors/sizes from variants
-        const colors: ColorOption[] = []
-        const sizes: string[] = []
-        for (const v of loadedVariants) {
-          if (v.color && !colors.find(c => c.name === v.color)) {
-            colors.push({ name: v.color, hex: v.colorHex || '#000' })
+        const bp = Number(product.basePrice) || 0
+        const colorMap = new Map<string, { variants: any[], price: number, colorHex: string, weight: string, isActive: boolean }>()
+        for (const v of product.variants) {
+          const colorKey = v.color || 'Default'
+          if (!colorMap.has(colorKey)) {
+            colorMap.set(colorKey, {
+              variants: [],
+              price: bp + Number(v.priceDelta || 0),
+              colorHex: v.colorHex || '#000000',
+              weight: v.weight ? String(v.weight) : '',
+              isActive: v.isActive !== false,
+            })
           }
-          if (v.size && !sizes.includes(v.size)) {
-            sizes.push(v.size)
-          }
+          colorMap.get(colorKey)!.variants.push(v)
         }
-        setSelectedColors(colors)
-        setSelectedSizes(sizes)
+        const loadedVariants: VariantFormValues[] = Array.from(colorMap.entries()).map(([colorName, data]) => {
+          const skuParts = data.variants[0]?.sku?.split('-') || []
+          const skuPrefix = skuParts.length > 1 ? skuParts.slice(0, -1).join('-') : data.variants[0]?.sku || ''
+          return {
+            _localId: crypto.randomUUID(),
+            colorName,
+            colorHex: data.colorHex,
+            sku: skuPrefix,
+            price: data.price.toString(),
+            compareAtPrice: product.salePrice ? Number(product.basePrice).toString() : '',
+            costPrice: product.costPrice ? Number(product.costPrice).toString() : '',
+            barcode: '',
+            weight: data.weight,
+            images: [],
+            inventory: [],
+            sizeQuantities: data.variants.map((v: any) => ({
+              size: v.size || 'FREE',
+              quantity: v.inventory?.quantity || 0,
+            })),
+            isActive: data.isActive,
+          }
+        })
+        setVariants(loadedVariants)
       }
 
       setLoaded(true)
     }
   }, [product, loaded])
 
-  // Load media
-  useEffect(() => {
-    if (mediaAssets && images.length === 0 && loaded) {
-      const loadedImages: UploadedImage[] = mediaAssets.map((m: any) => ({
-        id: m.id,
-        url: m.url,
-        isPrimary: m.isPrimary,
-        uploading: false,
-      }))
-      setImages(loadedImages)
-    }
-  }, [mediaAssets, loaded, images.length])
+  // ── Completion ──
+  const completion = useMemo(() => ({
+    basic: !!basicInfo.name && !!basicInfo.categoryId,
+    description: !!descriptionInfo.fullDescription,
+    variants: variants.length > 0 && variants.every(v => !!v.sku && !!v.price),
+    seo: !!(seoInfo.metaTitle || basicInfo.name),
+  }), [basicInfo, descriptionInfo, variants, seoInfo])
 
-  // Computed
-  const discount = useMemo(() => {
-    if (!basePrice || !salePrice) return null
-    const bp = parseFloat(basePrice)
-    const sp = parseFloat(salePrice)
-    if (!bp || !sp || sp >= bp) return null
-    return Math.round((1 - sp / bp) * 100)
-  }, [basePrice, salePrice])
+  const completionPct = useMemo(() => {
+    const items = Object.values(completion)
+    return Math.round(items.filter(Boolean).length / items.length * 100)
+  }, [completion])
 
-  const margin = useMemo(() => {
-    if (!salePrice || !costPrice) return null
-    const sp = parseFloat(salePrice || basePrice)
-    const cp = parseFloat(costPrice)
-    if (!sp || !cp) return null
-    return Math.round((sp - cp) / sp * 100)
-  }, [salePrice, costPrice, basePrice])
-
-  const profit = useMemo(() => {
-    const sp = parseFloat(salePrice || basePrice)
-    const cp = parseFloat(costPrice)
-    if (!sp || !cp) return null
-    return sp - cp
-  }, [salePrice, costPrice, basePrice])
-
-  const gstAmount = useMemo(() => {
-    const sp = parseFloat(salePrice || basePrice)
-    if (!sp) return null
-    return (sp * gstRate / (100 + gstRate)).toFixed(2)
-  }, [salePrice, basePrice, gstRate])
-
-  // Tags
-  const addTag = useCallback(() => {
-    const t = tagInput.trim()
-    if (t && !tags.includes(t)) setTags(prev => [...prev, t])
-    setTagInput('')
-  }, [tagInput, tags])
-
-  const removeTag = useCallback((tag: string) => {
-    setTags(prev => prev.filter(t => t !== tag))
-  }, [])
-
-  // Save (update)
+  // ── Save ──
   const handleSave = useCallback(async () => {
-    if (!name.trim()) { toast.error('Product name is required'); return }
-    if (!basePrice) { toast.error('Base price is required'); return }
+    if (!basicInfo.name.trim()) { toast.error('Product name is required'); return }
 
     setSaving(true)
     try {
+      const prices = variants.map(v => parseFloat(v.price)).filter(p => !isNaN(p))
+      const lowestPrice = prices.length > 0 ? Math.min(...prices) : Number(product?.basePrice) || 0
+
       const res = await fetch(`/api/portal/products/${productId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          name: name.trim(),
-          description,
-          shortDescription,
-          brand,
-          categoryId: categoryId || undefined,
-          basePrice: parseFloat(basePrice),
-          salePrice: salePrice ? parseFloat(salePrice) : undefined,
-          costPrice: costPrice ? parseFloat(costPrice) : undefined,
-          isFeatured,
-          isActive,
-          metaTitle,
-          metaDescription,
+          name: basicInfo.name.trim(),
+          description: descriptionInfo.fullDescription || undefined,
+          shortDescription: basicInfo.shortDescription || undefined,
+          brand: basicInfo.brand || undefined,
+          categoryId: basicInfo.categoryId || undefined,
+          basePrice: lowestPrice,
+          isFeatured: basicInfo.isFeatured,
+          isActive: basicInfo.isPublished,
+          metaTitle: seoInfo.metaTitle || undefined,
+          metaDescription: seoInfo.metaDescription || undefined,
+          variants: variants.length > 0 ? variants.flatMap((v, ci) =>
+            v.sizeQuantities.map((sq, si) => ({
+              sku: `${v.sku}-${sq.size}`,
+              name: [v.colorName, sq.size].filter(Boolean).join(' / ') || undefined,
+              size: sq.size || undefined,
+              color: v.colorName || undefined,
+              colorHex: v.colorHex || undefined,
+              priceDelta: parseFloat(v.price) - lowestPrice,
+              weight: v.weight ? parseFloat(v.weight) : undefined,
+              sortOrder: ci * 100 + si,
+              isActive: v.isActive && sq.quantity > 0,
+              quantity: sq.quantity,
+            }))
+          ) : undefined,
         }),
       })
 
@@ -208,16 +189,17 @@ export default function EditProductPage() {
         return
       }
 
-      // Update media
-      if (images.length > 0) {
+      // Upload variant images
+      const allImages = variants.flatMap(v => v.images.filter(img => !img.uploading))
+      if (allImages.length > 0) {
         await fetch(`/api/portal/products/${productId}/media`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({
-            media: images.filter(img => !img.uploading).map((img, i) => ({
+            media: allImages.map((img, i) => ({
               url: img.url,
-              isPrimary: img.isPrimary,
+              isPrimary: i === 0,
               sortOrder: i,
             })),
           }),
@@ -231,16 +213,7 @@ export default function EditProductPage() {
     } finally {
       setSaving(false)
     }
-  }, [name, description, shortDescription, brand, categoryId, basePrice, salePrice, costPrice, isFeatured, isActive, metaTitle, metaDescription, images, productId, router])
-
-  const sections = [
-    { key: 'basic' as const, label: 'Basic Info', icon: Package },
-    { key: 'media' as const, label: 'Media', icon: ImageIcon },
-    { key: 'variants' as const, label: 'Variants', icon: Palette },
-    { key: 'pricing' as const, label: 'Pricing', icon: DollarSign },
-    { key: 'advanced' as const, label: 'Advanced', icon: Settings },
-    { key: 'seo' as const, label: 'SEO', icon: SearchIcon },
-  ]
+  }, [basicInfo, descriptionInfo, variants, seoInfo, productId, product, router])
 
   if (productLoading) {
     return (
@@ -265,8 +238,8 @@ export default function EditProductPage() {
 
   return (
     <PortalShell>
-      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-6 max-w-6xl">
-        {/* Header */}
+      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-6 max-w-7xl">
+        {/* ── Header ── */}
         <motion.div variants={fadeUpVariants} className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <button onClick={() => router.back()} className="p-2 rounded-xl hover:bg-[var(--portal-elevated)]" style={{ color: 'var(--portal-muted)' }}>
@@ -274,10 +247,22 @@ export default function EditProductPage() {
             </button>
             <div>
               <h1 className="font-display text-2xl font-bold" style={{ color: 'var(--portal-text)' }}>Edit Product</h1>
-              <p className="text-sm" style={{ color: 'var(--portal-muted)' }}>{product.name}</p>
+              <p className="text-xs" style={{ color: 'var(--portal-muted)' }}>
+                {basicInfo.name}
+                <span className="font-mono ml-1 opacity-60">/{product.slug}</span>
+              </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ background: 'var(--portal-elevated)' }}>
+              <div className="relative w-6 h-6">
+                <svg viewBox="0 0 36 36" className="w-6 h-6 -rotate-90">
+                  <circle cx="18" cy="18" r="15" fill="none" stroke="var(--portal-border)" strokeWidth="3" />
+                  <circle cx="18" cy="18" r="15" fill="none" stroke="var(--portal-accent)" strokeWidth="3" strokeDasharray={`${completionPct * 0.94} 100`} strokeLinecap="round" />
+                </svg>
+              </div>
+              <span className="text-[10px] font-medium" style={{ color: 'var(--portal-muted)' }}>{completionPct}%</span>
+            </div>
             <ClayButton variant="ghost" size="sm" onClick={() => router.push(`/product/${product.slug}`)} disabled={saving}>
               Preview
             </ClayButton>
@@ -288,13 +273,13 @@ export default function EditProductPage() {
           </div>
         </motion.div>
 
-        {/* Section Tabs */}
+        {/* ── Section Tabs ── */}
         <motion.div variants={fadeUpVariants} className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: 'var(--portal-elevated)' }}>
-          {sections.map(s => (
+          {SECTIONS.map(s => (
             <button
               key={s.key}
               onClick={() => setActiveSection(s.key)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
                 activeSection === s.key ? 'shadow-sm' : 'hover:opacity-80'
               }`}
               style={{
@@ -304,239 +289,65 @@ export default function EditProductPage() {
             >
               <s.icon size={13} />
               {s.label}
+              {completion[s.key] && <CheckCircle2 size={10} className="text-green-400" />}
             </button>
           ))}
         </motion.div>
 
         {/* ═══ BASIC INFO ═══ */}
         {activeSection === 'basic' && (
-          <motion.div variants={fadeUpVariants} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-4">
-              <FormCard title="Product Information">
-                <FormField label="Product Name" required>
-                  <input value={name} onChange={e => setName(e.target.value)} className="portal-input" />
-                </FormField>
-                <FormField label="Short Description">
-                  <input value={shortDescription} onChange={e => setShortDescription(e.target.value)} className="portal-input" />
-                </FormField>
-                <FormField label="Full Description">
-                  <textarea value={description} onChange={e => setDescription(e.target.value)} rows={7} className="portal-input resize-none" />
-                </FormField>
-              </FormCard>
-
-              <FormCard title="Tags & Keywords">
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {tags.map(tag => (
-                    <span key={tag} className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium" style={{ border: '1px solid var(--portal-accent)', color: 'var(--portal-accent)' }}>
-                      {tag}
-                      <button type="button" onClick={() => removeTag(tag)} className="hover:text-red-400">×</button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <input value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addTag())} placeholder="Type a tag and press Enter" className="portal-input flex-1" />
-                  <button type="button" onClick={addTag} className="px-3 py-2 rounded-xl text-xs font-medium" style={{ background: 'var(--portal-elevated)', color: 'var(--portal-text)' }}>Add</button>
-                </div>
-              </FormCard>
-            </div>
-
-            <div className="space-y-4">
-              <FormCard title="Organization">
-                <FormField label="Product Type">
-                  <select value={productType} onChange={e => setProductType(e.target.value)} className="portal-input">
-                    <option value="">Select type</option>
-                    {PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </FormField>
-                <FormField label="Brand">
-                  <input value={brand} onChange={e => setBrand(e.target.value)} className="portal-input" />
-                </FormField>
-                <FormField label="Category">
-                  <select value={categoryId} onChange={e => setCategoryId(e.target.value)} className="portal-input">
-                    <option value="">Select category</option>
-                    {categories?.map((cat: any) => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
-                  </select>
-                </FormField>
-              </FormCard>
-
-              <FormCard title="Visibility">
-                <div className="space-y-3">
-                  <label className="flex items-center justify-between cursor-pointer p-2 rounded-lg hover:bg-[var(--portal-elevated)]">
-                    <span className="text-xs font-medium" style={{ color: 'var(--portal-text)' }}>Active</span>
-                    <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="rounded" />
-                  </label>
-                  <label className="flex items-center justify-between cursor-pointer p-2 rounded-lg hover:bg-[var(--portal-elevated)]">
-                    <span className="text-xs font-medium" style={{ color: 'var(--portal-text)' }}>Featured</span>
-                    <input type="checkbox" checked={isFeatured} onChange={e => setIsFeatured(e.target.checked)} className="rounded" />
-                  </label>
-                </div>
-              </FormCard>
-
-              {/* Product Meta */}
-              <div className="rounded-2xl p-4 space-y-2" style={{ background: 'var(--portal-surface)', border: '1px solid var(--portal-border)' }}>
-                <p className="text-xs font-semibold" style={{ color: 'var(--portal-text)' }}>Product Info</p>
-                <div className="space-y-1 text-[10px]" style={{ color: 'var(--portal-muted)' }}>
-                  <p>ID: <span className="font-mono">{product.id}</span></p>
-                  <p>Slug: <span className="font-mono">{product.slug}</span></p>
-                  <p>Created: {new Date(product.createdAt).toLocaleDateString()}</p>
-                  <p>Updated: {new Date(product.updatedAt).toLocaleDateString()}</p>
-                </div>
+          <motion.div variants={fadeUpVariants}>
+            <BasicInfoSection values={basicInfo} onChange={setBasicInfo} />
+            {/* Product Meta */}
+            <div className="mt-4 rounded-2xl p-4 space-y-2" style={{ background: 'var(--portal-surface)', border: '1px solid var(--portal-border)' }}>
+              <p className="text-xs font-semibold" style={{ color: 'var(--portal-text)' }}>Product Info</p>
+              <div className="flex flex-wrap gap-4 text-[10px]" style={{ color: 'var(--portal-muted)' }}>
+                <p>ID: <span className="font-mono">{product.id}</span></p>
+                <p>Slug: <span className="font-mono">{product.slug}</span></p>
+                <p>Created: {new Date(product.createdAt).toLocaleDateString()}</p>
+                <p>Updated: {new Date(product.updatedAt).toLocaleDateString()}</p>
               </div>
             </div>
           </motion.div>
         )}
 
-        {/* ═══ MEDIA ═══ */}
-        {activeSection === 'media' && (
+        {/* ═══ DESCRIPTION ═══ */}
+        {activeSection === 'description' && (
           <motion.div variants={fadeUpVariants}>
-            <FormCard title="Product Images">
-              <ImageUploader images={images} onChange={setImages} maxImages={10} folder="products" />
-              <p className="text-[10px] mt-2" style={{ color: 'var(--portal-muted)' }}>
-                Drag to reorder. Star to set primary. Recommended: 1000×1000px, square.
-              </p>
-            </FormCard>
+            <DescriptionBuilder
+              productName={basicInfo.name}
+              fabricType={basicInfo.fabricType}
+              fabricQuality={basicInfo.fabricQuality}
+              values={descriptionInfo}
+              onChange={setDescriptionInfo}
+            />
           </motion.div>
         )}
 
         {/* ═══ VARIANTS ═══ */}
         {activeSection === 'variants' && (
-          <motion.div variants={fadeUpVariants} className="space-y-4">
-            <FormCard title="Colors">
-              <ColorPicker selected={selectedColors} onChange={setSelectedColors} />
-            </FormCard>
-            <FormCard title="Sizes">
-              <SizeSelector sizeType={sizeType} selected={selectedSizes} onChange={setSelectedSizes} onSizeTypeChange={setSizeType} />
-            </FormCard>
-            <FormCard title="Variant Matrix">
-              <VariantMatrix variants={variants} colors={selectedColors} sizes={sizeType === 'free' ? [] : selectedSizes} productName={name} onChange={setVariants} />
-            </FormCard>
-          </motion.div>
-        )}
-
-        {/* ═══ PRICING ═══ */}
-        {activeSection === 'pricing' && (
-          <motion.div variants={fadeUpVariants} className="space-y-4">
-            <FormCard title="Pricing">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <FormField label="Base Price (MRP) ₹" required>
-                  <input type="number" value={basePrice} onChange={e => setBasePrice(e.target.value)} className="portal-input" />
-                </FormField>
-                <FormField label="Sale Price ₹">
-                  <input type="number" value={salePrice} onChange={e => setSalePrice(e.target.value)} className="portal-input" />
-                </FormField>
-                <FormField label="Cost Price ₹">
-                  <input type="number" value={costPrice} onChange={e => setCostPrice(e.target.value)} className="portal-input" />
-                </FormField>
-              </div>
-            </FormCard>
-
-            {(basePrice || salePrice || costPrice) && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <CalcCard label="Discount" value={discount ? `${discount}%` : '—'} color="#22C55E" sub="off MRP" />
-                <CalcCard label="Margin" value={margin ? `${margin}%` : '—'} color="#3B82F6" sub="of selling" />
-                <CalcCard label="Profit" value={profit ? `₹${profit.toFixed(0)}` : '—'} color="#A855F7" sub="per unit" />
-                <CalcCard label="GST" value={gstAmount ? `₹${gstAmount}` : '—'} color="#F97316" sub={`@ ${gstRate}%`} />
-              </div>
-            )}
-
-            <FormCard title="Tax">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField label="GST Slab">
-                  <select value={gstRate} onChange={e => setGstRate(parseInt(e.target.value))} className="portal-input">
-                    {GST_SLABS.map(s => <option key={s.rate} value={s.rate}>{s.label}</option>)}
-                  </select>
-                </FormField>
-                <FormField label="HSN Code">
-                  <input value={hsnCode} onChange={e => setHsnCode(e.target.value)} className="portal-input" />
-                </FormField>
-              </div>
-            </FormCard>
-          </motion.div>
-        )}
-
-        {/* ═══ ADVANCED ═══ */}
-        {activeSection === 'advanced' && (
-          <motion.div variants={fadeUpVariants} className="space-y-4">
-            <FormCard title="Material & Fabric">
-              <div className="flex flex-wrap gap-2">
-                {MATERIALS.map(m => (
-                  <button key={m} type="button" onClick={() => setMaterial(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m])} className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${material.includes(m) ? 'border-[var(--portal-accent)] bg-[var(--portal-accent)]/10 text-[var(--portal-accent)]' : 'border-[var(--portal-border)]'}`} style={{ color: material.includes(m) ? undefined : 'var(--portal-text)' }}>{m}</button>
-                ))}
-              </div>
-            </FormCard>
-            <FormCard title="Care Instructions">
-              <div className="flex flex-wrap gap-2">
-                {CARE_INSTRUCTIONS.map(c => (
-                  <button key={c} type="button" onClick={() => setCareInstructions(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${careInstructions.includes(c) ? 'border-[var(--portal-accent)] bg-[var(--portal-accent)]/10 text-[var(--portal-accent)]' : 'border-[var(--portal-border)]'}`} style={{ color: careInstructions.includes(c) ? undefined : 'var(--portal-text)' }}>{c}</button>
-                ))}
-              </div>
-            </FormCard>
-            <FormCard title="Shipping & Origin">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField label="Weight (g)">
-                  <input type="number" value={weight} onChange={e => setWeight(e.target.value)} className="portal-input" />
-                </FormField>
-                <FormField label="Country of Origin">
-                  <input value={countryOfOrigin} onChange={e => setCountryOfOrigin(e.target.value)} className="portal-input" />
-                </FormField>
-              </div>
-            </FormCard>
+          <motion.div variants={fadeUpVariants}>
+            <VariantManager
+              variants={variants}
+              onChange={setVariants}
+              productSlug={product.slug}
+            />
           </motion.div>
         )}
 
         {/* ═══ SEO ═══ */}
         {activeSection === 'seo' && (
-          <motion.div variants={fadeUpVariants} className="space-y-4">
-            <FormCard title="SEO">
-              <FormField label="Meta Title">
-                <input value={metaTitle} onChange={e => setMetaTitle(e.target.value)} placeholder={name} className="portal-input" />
-                <p className="text-[10px] mt-1" style={{ color: (metaTitle || name).length > 60 ? '#ef4444' : 'var(--portal-muted)' }}>{(metaTitle || name).length}/60</p>
-              </FormField>
-              <FormField label="Meta Description">
-                <textarea value={metaDescription} onChange={e => setMetaDescription(e.target.value)} rows={3} className="portal-input resize-none" />
-                <p className="text-[10px] mt-1" style={{ color: metaDescription.length > 160 ? '#ef4444' : 'var(--portal-muted)' }}>{metaDescription.length}/160</p>
-              </FormField>
-            </FormCard>
-            <FormCard title="Search Preview">
-              <div className="p-4 rounded-xl" style={{ background: '#fff' }}>
-                <p className="text-sm font-medium text-[#1a0dab] truncate">{metaTitle || name || 'Product Title'}</p>
-                <p className="text-xs text-[#006621] truncate">aprdite.com/product/{product.slug}</p>
-                <p className="text-xs text-[#545454] mt-0.5 line-clamp-2">{metaDescription || shortDescription || 'Description...'}</p>
-              </div>
-            </FormCard>
+          <motion.div variants={fadeUpVariants}>
+            <SeoSection
+              productName={basicInfo.name}
+              productSlug={product.slug}
+              shortDescription={basicInfo.shortDescription}
+              values={seoInfo}
+              onChange={setSeoInfo}
+            />
           </motion.div>
         )}
       </motion.div>
     </PortalShell>
-  )
-}
-
-function FormCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl p-5 space-y-4" style={{ background: 'var(--portal-surface)', border: '1px solid var(--portal-border)' }}>
-      <h3 className="text-sm font-semibold" style={{ color: 'var(--portal-text)' }}>{title}</h3>
-      {children}
-    </div>
-  )
-}
-
-function FormField({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <label className="text-xs font-medium" style={{ color: 'var(--portal-muted)' }}>
-        {label} {required && <span className="text-red-400">*</span>}
-      </label>
-      {children}
-    </div>
-  )
-}
-
-function CalcCard({ label, value, color, sub }: { label: string; value: string; color: string; sub: string }) {
-  return (
-    <div className="rounded-xl p-3 text-center" style={{ background: 'var(--portal-surface)', border: '1px solid var(--portal-border)' }}>
-      <p className="text-[10px] font-medium" style={{ color: 'var(--portal-muted)' }}>{label}</p>
-      <p className="text-lg font-bold mt-0.5" style={{ color }}>{value}</p>
-      <p className="text-[9px]" style={{ color: 'var(--portal-muted)' }}>{sub}</p>
-    </div>
   )
 }
