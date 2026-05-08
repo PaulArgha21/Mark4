@@ -470,7 +470,7 @@ model ProductVariant {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  inventory    Inventory?
+  inventory    Inventory[]
   cartItems    CartItem[]
   orderItems   OrderItem[]
   reservations InventoryReservation[]
@@ -484,16 +484,20 @@ model ProductVariant {
 }
 
 model Inventory {
-  id                String         @id @default(cuid())
-  variantId         String         @unique
-  variant           ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
-  quantity          Int            @default(0)
-  reserved          Int            @default(0)
-  lowStockThreshold Int            @default(5)
+  id                String             @id @default(cuid())
+  variantId         String
+  variant           ProductVariant     @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  quantity          Int                @default(0)
+  reserved          Int                @default(0)
+  lowStockThreshold Int                @default(5)
   warehouseId       String?
-  updatedAt         DateTime       @updatedAt
+  warehouse         WarehouseLocation? @relation(fields: [warehouseId], references: [id])
+  updatedAt         DateTime           @updatedAt
 
+  @@unique([variantId, warehouseId])
+  @@index([variantId])
   @@index([quantity])
+  @@index([warehouseId])
 }
 
 model InventoryReservation {
@@ -1237,8 +1241,9 @@ model WarehouseLocation {
   state     String?
   latitude  Float?
   longitude Float?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  inventories Inventory[]
 
   @@index([pincode])
 }

@@ -81,7 +81,7 @@ export async function GET(
       priceDelta: Number(v.priceDelta),
       sortOrder: v.sortOrder,
       media: v.media,
-      availableQty: Math.max(0, (v.inventory?.quantity ?? 0) - (v.inventory?.reserved ?? 0)),
+      availableQty: Math.max(0, v.inventory.reduce((s, inv) => s + (inv.quantity - inv.reserved), 0)),
     }))
 
     // 4. Rating distribution

@@ -8,9 +8,10 @@ import { invalidateCmsCache, CACHE_KEYS } from '@/lib/cache'
 import { z } from 'zod'
 
 const adjustSchema = z.object({
-  newQty:  z.number().int().min(0),
-  reason:  z.string().min(1),
-  notes:   z.string().optional(),
+  newQty:      z.number().int().min(0),
+  reason:      z.string().min(1),
+  notes:       z.string().optional(),
+  warehouseId: z.string().optional(),
 })
 
 export async function PUT(
@@ -21,25 +22,25 @@ export async function PUT(
   if (error) return error
 
   try {
-    const inventory = await db.inventory.findUnique({
-      where: { variantId: params.variantId },
-      include: {
-        variant: {
-          select: {
-            sku: true,
-            product: { select: { slug: true, name: true } },
-          },
-        },
-      },
-    })
-
-    if (!inventory) return notFound('Inventory record not found')
-
     const body = await request.json()
     const parsed = adjustSchema.safeParse(body)
     if (!parsed.success) return badRequest('Invalid data', parsed.error.flatten())
 
-    const { newQty, reason, notes } = parsed.data
+    const { newQty, reason, notes, warehouseId } = parsed.data
+
+    // Find the specific inventory row (by composite unique or first match)
+    const inventory = warehouseId
+      ? await db.inventory.findUnique({
+          where: { variantId_warehouseId: { variantId: params.variantId, warehouseId } },
+          include: { variant: { select: { sku: true, product: { select: { slug: true, name: true } } } } },
+        })
+      : await db.inventory.findFirst({
+          where: { variantId: params.variantId },
+          include: { variant: { select: { sku: true, product: { select: { slug: true, name: true } } } } },
+        })
+
+    if (!inventory) return notFound('Inventory record not found')
+
     const previousQty = inventory.quantity
     const delta = newQty - previousQty
 
@@ -48,7 +49,7 @@ export async function PUT(
     // Transaction: update inventory + create adjustment record + create movement
     await db.$transaction([
       db.inventory.update({
-        where: { variantId: params.variantId },
+        where: { id: inventory.id },
         data: { quantity: newQty },
       }),
       db.stockAdjustment.create({

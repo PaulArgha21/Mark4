@@ -127,7 +127,7 @@ export async function GET(
         unitPrice: Number(item.unitPrice),
         totalPrice: Number(item.totalPrice),
         discount: Number(item.discount),
-        currentStock: item.variant.inventory?.quantity ?? 0,
+        currentStock: item.variant.inventory?.reduce((s: number, inv: { quantity: number }) => s + inv.quantity, 0) ?? 0,
         image: item.product.media[0]?.url ?? null,
       })),
       payments: order.payments.map(p => ({

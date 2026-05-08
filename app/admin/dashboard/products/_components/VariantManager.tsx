@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import { Plus, Layers, Zap } from 'lucide-react'
 import { ColorPicker, ColorOption } from '@/components/portal/products/ColorPicker'
 import { SizeSelector, SizeType } from '@/components/portal/products/SizeSelector'
@@ -30,8 +30,7 @@ function makeColorVariant(slug: string, color: ColorOption, sizes: string[]): Va
     barcode: '',
     weight: '',
     images: [],
-    inventory: [],
-    sizeQuantities: sizes.map(s => ({ size: s, quantity: 0 })),
+    sizeQuantities: sizes.map(s => ({ size: s, warehouses: [] })),
     isActive: true,
   }
 }
@@ -41,27 +40,59 @@ export function VariantManager({ variants, onChange, productSlug }: VariantManag
   const [selectedSizes, setSelectedSizes] = useState<string[]>([])
   const [sizeType, setSizeType] = useState<SizeType>('clothing')
 
+  const existingColors = useMemo(() => {
+    const map = new Map<string, ColorOption>()
+    for (const v of variants) {
+      if (!map.has(v.colorName)) {
+        map.set(v.colorName, { name: v.colorName, hex: v.colorHex || '#000000' })
+      }
+    }
+    return Array.from(map.values())
+  }, [variants])
+
+  const existingSizes = useMemo(() => {
+    const set = new Set<string>()
+    for (const v of variants) {
+      for (const sq of v.sizeQuantities) set.add(sq.size)
+    }
+    return Array.from(set)
+  }, [variants])
+
   // Active sizes list
   const activeSizes = useMemo(() => {
     if (sizeType === 'free') return ['FREE']
-    return selectedSizes.length > 0 ? selectedSizes : ['FREE']
-  }, [sizeType, selectedSizes])
+    const sizes = selectedSizes.length > 0 ? selectedSizes : existingSizes
+    return sizes.length > 0 ? sizes : ['FREE']
+  }, [sizeType, selectedSizes, existingSizes])
+
+  const activeColors = useMemo(() => {
+    const colors = selectedColors.length > 0 ? selectedColors : existingColors
+    return colors.length > 0 ? colors : [{ name: 'Default', hex: '#000000' }]
+  }, [selectedColors, existingColors])
+
+  useEffect(() => {
+    if (variants.length === 0) return
+    if (selectedColors.length === 0 && existingColors.length > 0) {
+      setSelectedColors(existingColors)
+    }
+    if (selectedSizes.length === 0 && existingSizes.length > 0) {
+      setSelectedSizes(existingSizes)
+    }
+  }, [variants.length, existingColors, existingSizes, selectedColors.length, selectedSizes.length])
 
   // Generate one card per color
   const generateVariants = useCallback(() => {
-    const colors = selectedColors.length > 0 ? selectedColors : [{ name: 'Default', hex: '#000000' }]
-
     const generated: VariantFormValues[] = []
-    for (const color of colors) {
+    for (const color of activeColors) {
       // Preserve existing variant for this color
       const existing = variants.find(v => v.colorName === color.name)
       if (existing) {
-        // Update sizeQuantities to include any new sizes
-        const existingSizes = existing.sizeQuantities.map(sq => sq.size)
+        // Preserve current size rows and merge in any new sizes without losing warehouse selections
+        const existingSizesForColor = existing.sizeQuantities.map(sq => sq.size)
         const newSizeQtys = [...existing.sizeQuantities]
         for (const s of activeSizes) {
-          if (!existingSizes.includes(s)) {
-            newSizeQtys.push({ size: s, quantity: 0 })
+          if (!existingSizesForColor.includes(s)) {
+            newSizeQtys.push({ size: s, warehouses: [] })
           }
         }
         generated.push({ ...existing, sizeQuantities: newSizeQtys })
@@ -69,8 +100,14 @@ export function VariantManager({ variants, onChange, productSlug }: VariantManag
         generated.push(makeColorVariant(productSlug, color, activeSizes))
       }
     }
+    // Keep any colors that already exist but are not in the current selection, so regenerate never drops data accidentally.
+    for (const existing of variants) {
+      if (!generated.some(v => v.colorName === existing.colorName)) {
+        generated.push(existing)
+      }
+    }
     onChange(generated)
-  }, [selectedColors, activeSizes, productSlug, variants, onChange])
+  }, [activeColors, activeSizes, productSlug, variants, onChange])
 
   // Single add (blank color)
   const addBlankVariant = useCallback(() => {
@@ -98,8 +135,7 @@ export function VariantManager({ variants, onChange, productSlug }: VariantManag
       colorName: source.colorName + ' Copy',
       sku: source.sku + '-COPY',
       images: [],
-      inventory: [],
-      sizeQuantities: source.sizeQuantities.map(sq => ({ ...sq, quantity: 0 })),
+      sizeQuantities: source.sizeQuantities.map(sq => ({ ...sq, warehouses: [] })),
     }
     const idx = variants.findIndex(v => v._localId === localId)
     const next = [...variants]
@@ -121,7 +157,7 @@ export function VariantManager({ variants, onChange, productSlug }: VariantManag
   }, [variants, bulkPrice, bulkCompare, bulkCost, onChange])
 
   // Stats
-  const totalStock = useMemo(() => variants.reduce((s, v) => s + v.sizeQuantities.reduce((ss, sq) => ss + sq.quantity, 0), 0), [variants])
+  const totalStock = useMemo(() => variants.reduce((s, v) => s + v.sizeQuantities.reduce((ss, sq) => ss + sq.warehouses.reduce((ws, w) => ws + w.quantity, 0), 0), 0), [variants])
   const activeCount = useMemo(() => variants.filter(v => v.isActive).length, [variants])
 
   return (

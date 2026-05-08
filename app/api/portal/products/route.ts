@@ -102,6 +102,11 @@ export async function GET(request: Request) {
 
 // ─── POST: Create a new product ─────────────────────────────────
 
+const warehouseEntrySchema = z.object({
+  warehouseId: z.string().min(1),
+  quantity:    z.number().int().min(0).default(0),
+})
+
 const variantSchema = z.object({
   sku:        z.string().min(1),
   name:       z.string().optional(),
@@ -111,7 +116,7 @@ const variantSchema = z.object({
   priceDelta: z.number().default(0),
   weight:     z.number().optional(),
   sortOrder:  z.number().default(0),
-  quantity:   z.number().int().min(0).default(0),
+  warehouses: z.array(warehouseEntrySchema).default([]),
 })
 
 const createSchema = z.object({
@@ -173,7 +178,7 @@ export async function POST(request: Request) {
         },
       })
 
-      // Create variants + inventory
+      // Create variants + multi-warehouse inventory
       for (const v of data.variants) {
         const variant = await tx.productVariant.create({
           data: {
@@ -188,9 +193,21 @@ export async function POST(request: Request) {
             sortOrder: v.sortOrder,
           },
         })
-        await tx.inventory.create({
-          data: { variantId: variant.id, quantity: v.quantity },
-        })
+        // Create one Inventory row per warehouse entry
+        if (v.warehouses.length > 0) {
+          for (const wh of v.warehouses) {
+            if (wh.quantity > 0 && wh.warehouseId) {
+              await tx.inventory.create({
+                data: { variantId: variant.id, quantity: wh.quantity, warehouseId: wh.warehouseId },
+              })
+            }
+          }
+        } else {
+          // Fallback: create a default inventory row with zero stock
+          await tx.inventory.create({
+            data: { variantId: variant.id, quantity: 0, warehouseId: null },
+          })
+        }
       }
 
       return p

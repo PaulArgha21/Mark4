@@ -24,7 +24,7 @@ export async function PUT(
     })
     if (!item) return badRequest('Cart item not found')
 
-    const available = (item.variant.inventory?.quantity ?? 0) - (item.variant.inventory?.reserved ?? 0)
+    const available = item.variant.inventory.reduce((s: number, inv: { quantity: number; reserved: number }) => s + (inv.quantity - inv.reserved), 0)
     if (parsed.data.quantity > available) {
       return badRequest(`Only ${available} available`)
     }

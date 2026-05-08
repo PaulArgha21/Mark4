@@ -16,6 +16,15 @@ import { toast } from 'sonner'
 
 const fetcher = (url: string) => fetch(url, { credentials: 'include' }).then(r => r.json()).then(r => r.data)
 
+async function readErrorMessage(res: Response, fallback: string) {
+  try {
+    const data = await res.json()
+    return data?.message || data?.error || data?.details?.message || fallback
+  } catch {
+    return fallback
+  }
+}
+
 type Section = 'basic' | 'description' | 'variants' | 'seo'
 
 const SECTIONS = [
@@ -29,6 +38,12 @@ function slugify(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
 }
 
+function inferSkuPrefix(sku?: string): string {
+  if (!sku) return ''
+  const parts = sku.split('-')
+  return parts.length > 1 ? parts.slice(0, -1).join('-') : sku
+}
+
 export default function EditProductPage() {
   const router = useRouter()
   const params = useParams()
@@ -39,6 +54,7 @@ export default function EditProductPage() {
   const [saving, setSaving] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [activeSection, setActiveSection] = useState<Section>('basic')
+  const [saveError, setSaveError] = useState('')
 
   // ── Section State ──
   const [basicInfo, setBasicInfo] = useState<BasicInfoValues>({
@@ -101,8 +117,7 @@ export default function EditProductPage() {
           colorMap.get(colorKey)!.variants.push(v)
         }
         const loadedVariants: VariantFormValues[] = Array.from(colorMap.entries()).map(([colorName, data]) => {
-          const skuParts = data.variants[0]?.sku?.split('-') || []
-          const skuPrefix = skuParts.length > 1 ? skuParts.slice(0, -1).join('-') : data.variants[0]?.sku || ''
+          const skuPrefix = inferSkuPrefix(data.variants[0]?.sku)
           return {
             _localId: crypto.randomUUID(),
             colorName,
@@ -114,10 +129,15 @@ export default function EditProductPage() {
             barcode: '',
             weight: data.weight,
             images: [],
-            inventory: [],
             sizeQuantities: data.variants.map((v: any) => ({
               size: v.size || 'FREE',
-              quantity: v.inventory?.quantity || 0,
+              warehouses: Array.isArray(v.inventory)
+                ? v.inventory
+                    .filter((inv: any) => inv.warehouseId)
+                    .map((inv: any) => ({ warehouseId: inv.warehouseId, quantity: inv.quantity || 0 }))
+                : v.inventory?.warehouseId
+                  ? [{ warehouseId: v.inventory.warehouseId, quantity: v.inventory.quantity || 0 }]
+                  : [],
             })),
             isActive: data.isActive,
           }
@@ -147,9 +167,27 @@ export default function EditProductPage() {
     if (!basicInfo.name.trim()) { toast.error('Product name is required'); return }
 
     setSaving(true)
+    setSaveError('')
     try {
       const prices = variants.map(v => parseFloat(v.price)).filter(p => !isNaN(p))
       const lowestPrice = prices.length > 0 ? Math.min(...prices) : Number(product?.basePrice) || 0
+
+      const payloadVariants = variants.length > 0 ? variants.flatMap((v, ci) =>
+        v.sizeQuantities.map((sq, si) => ({
+          sku: `${v.sku}-${sq.size}`,
+          name: [v.colorName, sq.size].filter(Boolean).join(' / ') || undefined,
+          size: sq.size || undefined,
+          color: v.colorName || undefined,
+          colorHex: v.colorHex || undefined,
+          priceDelta: parseFloat(v.price) - lowestPrice,
+          weight: v.weight ? parseFloat(v.weight) : undefined,
+          sortOrder: ci * 100 + si,
+          isActive: v.isActive && sq.warehouses.some(w => w.quantity > 0),
+          warehouses: sq.warehouses
+            .filter(w => w.warehouseId)
+            .map(w => ({ warehouseId: w.warehouseId, quantity: w.quantity })),
+        }))
+      ) : undefined
 
       const res = await fetch(`/api/portal/products/${productId}`, {
         method: 'PUT',
@@ -166,26 +204,14 @@ export default function EditProductPage() {
           isActive: basicInfo.isPublished,
           metaTitle: seoInfo.metaTitle || undefined,
           metaDescription: seoInfo.metaDescription || undefined,
-          variants: variants.length > 0 ? variants.flatMap((v, ci) =>
-            v.sizeQuantities.map((sq, si) => ({
-              sku: `${v.sku}-${sq.size}`,
-              name: [v.colorName, sq.size].filter(Boolean).join(' / ') || undefined,
-              size: sq.size || undefined,
-              color: v.colorName || undefined,
-              colorHex: v.colorHex || undefined,
-              priceDelta: parseFloat(v.price) - lowestPrice,
-              weight: v.weight ? parseFloat(v.weight) : undefined,
-              sortOrder: ci * 100 + si,
-              isActive: v.isActive && sq.quantity > 0,
-              quantity: sq.quantity,
-            }))
-          ) : undefined,
+          variants: payloadVariants,
         }),
       })
 
       if (!res.ok) {
-        const err = await res.json()
-        toast.error(err.message || 'Failed to update product')
+        const errMsg = await readErrorMessage(res, 'Failed to update product')
+        setSaveError(errMsg)
+        toast.error(errMsg)
         return
       }
 
@@ -208,8 +234,10 @@ export default function EditProductPage() {
 
       toast.success('Product updated successfully')
       router.push('/admin/dashboard/products')
-    } catch {
-      toast.error('Something went wrong')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Something went wrong while saving the product.'
+      setSaveError(msg)
+      toast.error(msg)
     } finally {
       setSaving(false)
     }
@@ -271,6 +299,11 @@ export default function EditProductPage() {
               Save Changes
             </ClayButton>
           </div>
+          {saveError && (
+            <div className="w-full rounded-xl px-3 py-2 text-xs border border-red-500/30 bg-red-500/10 text-red-300">
+              {saveError}
+            </div>
+          )}
         </motion.div>
 
         {/* ── Section Tabs ── */}

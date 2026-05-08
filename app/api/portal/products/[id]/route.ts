@@ -25,7 +25,10 @@ export async function GET(
         variants: {
           orderBy: { sortOrder: 'asc' },
           include: {
-            inventory: { select: { quantity: true, reserved: true, lowStockThreshold: true } },
+            inventory: {
+              select: { id: true, quantity: true, reserved: true, lowStockThreshold: true, warehouseId: true },
+              orderBy: { quantity: 'desc' as const },
+            },
           },
         },
         tags: { include: { tag: true } },
@@ -54,6 +57,11 @@ export async function GET(
 
 // ─── PUT: Update product ────────────────────────────────────────
 
+const warehouseEntrySchema = z.object({
+  warehouseId: z.string().min(1),
+  quantity:    z.number().int().min(0).default(0),
+})
+
 const variantUpsertSchema = z.object({
   id:         z.string().optional(),
   sku:        z.string().min(1),
@@ -65,7 +73,7 @@ const variantUpsertSchema = z.object({
   weight:     z.number().optional(),
   sortOrder:  z.number().default(0),
   isActive:   z.boolean().default(true),
-  quantity:   z.number().int().min(0).default(0),
+  warehouses: z.array(warehouseEntrySchema).default([]),
 })
 
 const updateSchema = z.object({
@@ -125,8 +133,10 @@ export async function PUT(
           })
         }
 
-        // Upsert each variant
+        // Upsert each variant with multi-warehouse inventory
         for (const v of variantData) {
+          let variantId: string
+
           if (v.id && existingIds.includes(v.id)) {
             // Update existing variant
             await tx.productVariant.update({
@@ -143,14 +153,9 @@ export async function PUT(
                 isActive: v.isActive,
               },
             })
-            // Update inventory quantity
-            await tx.inventory.upsert({
-              where: { variantId: v.id },
-              update: { quantity: v.quantity },
-              create: { variantId: v.id, quantity: v.quantity },
-            })
+            variantId = v.id
           } else {
-            // Create new variant + inventory
+            // Create new variant
             const variant = await tx.productVariant.create({
               data: {
                 productId: params.id,
@@ -165,8 +170,23 @@ export async function PUT(
                 isActive: v.isActive,
               },
             })
+            variantId = variant.id
+          }
+
+          // Sync multi-warehouse inventory: delete old rows, create fresh ones
+          await tx.inventory.deleteMany({ where: { variantId } })
+          if (v.warehouses.length > 0) {
+            for (const wh of v.warehouses) {
+              if (wh.warehouseId) {
+                await tx.inventory.create({
+                  data: { variantId, quantity: wh.quantity, warehouseId: wh.warehouseId },
+                })
+              }
+            }
+          } else {
+            // Fallback: create a default zero-stock row
             await tx.inventory.create({
-              data: { variantId: variant.id, quantity: v.quantity },
+              data: { variantId, quantity: 0, warehouseId: null },
             })
           }
         }

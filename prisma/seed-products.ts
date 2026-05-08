@@ -230,12 +230,13 @@ async function main() {
         create: { ...variantFields, productId: product.id },
       })
 
-      // Create inventory
-      await db.inventory.upsert({
-        where: { variantId: variant.id },
-        update: { quantity },
-        create: { variantId: variant.id, quantity },
-      })
+      // Create inventory (using composite unique with null warehouseId)
+      const existingInv = await db.inventory.findFirst({ where: { variantId: variant.id } })
+      if (existingInv) {
+        await db.inventory.update({ where: { id: existingInv.id }, data: { quantity } })
+      } else {
+        await db.inventory.create({ data: { variantId: variant.id, quantity } })
+      }
     }
 
     // Connect tags

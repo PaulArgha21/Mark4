@@ -58,7 +58,7 @@ export async function POST(request: Request) {
 
     if (!variant) return badRequest('Variant not found')
 
-    const available = (variant.inventory?.quantity ?? 0) - (variant.inventory?.reserved ?? 0)
+    const available = variant.inventory.reduce((s: number, inv: { quantity: number; reserved: number }) => s + (inv.quantity - inv.reserved), 0)
     if (available < quantity) {
       return conflict('Insufficient stock. Only ' + available + ' available.')
     }

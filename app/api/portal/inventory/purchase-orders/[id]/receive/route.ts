@@ -58,13 +58,22 @@ export async function POST(
           data: { quantityReceived: newReceived },
         })
 
-        // Add to inventory
+        // Add to inventory (increment first existing row, or create unassigned)
         if (ri.quantityReceived > 0) {
-          await tx.inventory.upsert({
+          const existingInv = await tx.inventory.findFirst({
             where: { variantId: poItem.variantId },
-            update: { quantity: { increment: ri.quantityReceived } },
-            create: { variantId: poItem.variantId, quantity: ri.quantityReceived },
+            orderBy: { quantity: 'desc' },
           })
+          if (existingInv) {
+            await tx.inventory.update({
+              where: { id: existingInv.id },
+              data: { quantity: { increment: ri.quantityReceived } },
+            })
+          } else {
+            await tx.inventory.create({
+              data: { variantId: poItem.variantId, quantity: ri.quantityReceived },
+            })
+          }
 
           // Record movement
           await tx.inventoryMovement.create({

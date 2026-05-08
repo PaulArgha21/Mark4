@@ -48,7 +48,7 @@ export async function GET(request: Request) {
     const items = cart.items.map(item => {
       const product = item.variant.product
       const price = product.salePrice ? Number(product.salePrice) : Number(product.basePrice)
-      const availableQty = Math.max(0, (item.variant.inventory?.quantity ?? 0) - (item.variant.inventory?.reserved ?? 0))
+      const availableQty = Math.max(0, item.variant.inventory.reduce((s: number, inv: { quantity: number; reserved: number }) => s + (inv.quantity - inv.reserved), 0))
 
       return {
         id: item.id,

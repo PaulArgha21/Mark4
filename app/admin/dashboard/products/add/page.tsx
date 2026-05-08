@@ -13,6 +13,15 @@ import { SeoSection, SeoValues } from '../_components/SeoSection'
 import { staggerContainer, fadeUpVariants } from '@/lib/animations'
 import { toast } from 'sonner'
 
+async function readErrorMessage(res: Response, fallback: string) {
+  try {
+    const data = await res.json()
+    return data?.message || data?.error || data?.details?.message || fallback
+  } catch {
+    return fallback
+  }
+}
+
 type Section = 'basic' | 'description' | 'variants' | 'seo'
 
 const SECTIONS = [
@@ -47,7 +56,7 @@ export default function AddProductPage() {
   const completion = useMemo(() => ({
     basic: !!basicInfo.name && !!basicInfo.categoryId,
     description: descriptionInfo.keyFeatures.length > 0 || !!descriptionInfo.fullDescription,
-    variants: variants.length > 0 && variants.every(v => !!v.sku && !!v.price && v.sizeQuantities.some(sq => sq.quantity > 0)),
+    variants: variants.length > 0 && variants.every(v => !!v.sku && !!v.price && v.sizeQuantities.some(sq => sq.warehouses.some(w => w.quantity > 0))),
     seo: !!(seoInfo.metaTitle || basicInfo.name),
   }), [basicInfo, descriptionInfo, variants, seoInfo])
 
@@ -87,24 +96,28 @@ export default function AddProductPage() {
           metaTitle: seoInfo.metaTitle || undefined,
           metaDescription: seoInfo.metaDescription || undefined,
           variants: variants.filter(v => v.isActive).flatMap((v, ci) =>
-            v.sizeQuantities.filter(sq => sq.quantity > 0).map((sq, si) => ({
-              sku: `${v.sku}-${sq.size}`,
-              name: [v.colorName, sq.size].filter(Boolean).join(' / ') || undefined,
-              size: sq.size || undefined,
-              color: v.colorName || undefined,
-              colorHex: v.colorHex || undefined,
-              priceDelta: parseFloat(v.price) - lowestPrice,
-              weight: v.weight ? parseFloat(v.weight) : undefined,
-              sortOrder: ci * 100 + si,
-              quantity: sq.quantity,
-            }))
+            v.sizeQuantities
+              .filter(sq => sq.warehouses.some(w => w.quantity > 0))
+              .map((sq, si) => ({
+                sku: `${v.sku}-${sq.size}`,
+                name: [v.colorName, sq.size].filter(Boolean).join(' / ') || undefined,
+                size: sq.size || undefined,
+                color: v.colorName || undefined,
+                colorHex: v.colorHex || undefined,
+                priceDelta: parseFloat(v.price) - lowestPrice,
+                weight: v.weight ? parseFloat(v.weight) : undefined,
+                sortOrder: ci * 100 + si,
+                warehouses: sq.warehouses
+                  .filter(w => w.quantity > 0 && w.warehouseId)
+                  .map(w => ({ warehouseId: w.warehouseId, quantity: w.quantity })),
+              }))
           ),
         }),
       })
 
       if (!res.ok) {
-        const err = await res.json()
-        toast.error(err.message || 'Failed to create product')
+        const errMsg = await readErrorMessage(res, 'Failed to create product')
+        toast.error(errMsg)
         return
       }
 

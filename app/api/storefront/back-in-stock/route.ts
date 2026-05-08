@@ -23,8 +23,9 @@ export async function POST(request: NextRequest) {
     })
     if (!variant) return badRequest('Variant not found')
 
-    // Check if already in stock
-    if (variant.inventory && variant.inventory.quantity > 0) {
+    // Check if already in stock (sum across all warehouses)
+    const totalStock = variant.inventory.reduce((s, inv) => s + inv.quantity, 0)
+    if (totalStock > 0) {
       return ok({ message: 'Item is currently in stock', inStock: true })
     }
 

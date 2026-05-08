@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback, useMemo } from 'react'
 import useSWR from 'swr'
-import { ChevronDown, ChevronUp, Trash2, Copy, Plus, X, GripVertical, Truck } from 'lucide-react'
+import { ChevronDown, ChevronUp, Trash2, Copy, Plus, X, GripVertical, MapPin } from 'lucide-react'
 import { ImageUploader, UploadedImage } from '@/components/portal/products/ImageUploader'
 import { SectionCard, Field } from './BasicInfoSection'
 
@@ -9,14 +9,12 @@ const fetcher = (url: string) => fetch(url, { credentials: 'include' }).then(r =
 
 export interface WarehouseEntry {
   warehouseId: string
-  warehouseName: string
-  city: string
   quantity: number
 }
 
 export interface SizeQuantity {
   size: string
-  quantity: number
+  warehouses: WarehouseEntry[]
 }
 
 export interface VariantFormValues {
@@ -30,7 +28,6 @@ export interface VariantFormValues {
   barcode: string
   weight: string
   images: UploadedImage[]
-  inventory: WarehouseEntry[]
   sizeQuantities: SizeQuantity[]
   isActive: boolean
 }
@@ -83,50 +80,66 @@ export function VariantCard({ variant, index, productSlug, sizes, onChange, onRe
     return Math.round((1 - p / cp) * 100)
   }, [variant.price, variant.compareAtPrice])
 
-  // Total stock across all sizes
-  const totalStock = useMemo(() => variant.sizeQuantities.reduce((s, sq) => s + sq.quantity, 0), [variant.sizeQuantities])
+  // Total stock across all sizes and warehouses
+  const totalStock = useMemo(() =>
+    variant.sizeQuantities.reduce((s, sq) => s + sq.warehouses.reduce((ws, w) => ws + w.quantity, 0), 0),
+    [variant.sizeQuantities]
+  )
 
-  // Update size quantity
-  const updateSizeQty = useCallback((size: string, qty: number) => {
-    const existing = variant.sizeQuantities.find(sq => sq.size === size)
-    if (existing) {
-      set('sizeQuantities', variant.sizeQuantities.map(sq => sq.size === size ? { ...sq, quantity: qty } : sq))
+  const warehouseOptions = useMemo(() => Array.isArray(warehouses) ? warehouses : [], [warehouses])
+
+  const resolveWarehouse = useCallback((warehouseId?: string) => {
+    if (!warehouseId) return null
+    return warehouseOptions.find((w: any) => w.id === warehouseId) || null
+  }, [warehouseOptions])
+
+  // Total warehouse entries across all sizes
+  const totalWarehouseEntries = useMemo(() =>
+    variant.sizeQuantities.reduce((s, sq) => s + sq.warehouses.length, 0),
+    [variant.sizeQuantities]
+  )
+
+  // Get/ensure size row exists
+  const getSizeRow = useCallback((size: string): SizeQuantity => {
+    return variant.sizeQuantities.find(sq => sq.size === size) || { size, warehouses: [] }
+  }, [variant.sizeQuantities])
+
+  // Update a size row's warehouses
+  const updateSizeWarehouses = useCallback((size: string, warehouses: WarehouseEntry[]) => {
+    const exists = variant.sizeQuantities.find(sq => sq.size === size)
+    if (exists) {
+      set('sizeQuantities', variant.sizeQuantities.map(sq =>
+        sq.size === size ? { ...sq, warehouses } : sq
+      ))
     } else {
-      set('sizeQuantities', [...variant.sizeQuantities, { size, quantity: qty }])
+      set('sizeQuantities', [...variant.sizeQuantities, { size, warehouses }])
     }
   }, [variant.sizeQuantities, set])
 
-  // Get qty for a size
-  const getQty = useCallback((size: string) => {
-    return variant.sizeQuantities.find(sq => sq.size === size)?.quantity || 0
+  // Add a warehouse entry to a size
+  const addWarehouseToSize = useCallback((size: string) => {
+    const row = getSizeRow(size)
+    updateSizeWarehouses(size, [...row.warehouses, { warehouseId: '', quantity: 0 }])
+  }, [getSizeRow, updateSizeWarehouses])
+
+  // Remove a warehouse entry from a size
+  const removeWarehouseFromSize = useCallback((size: string, idx: number) => {
+    const row = getSizeRow(size)
+    updateSizeWarehouses(size, row.warehouses.filter((_, i) => i !== idx))
+  }, [getSizeRow, updateSizeWarehouses])
+
+  // Update a warehouse entry within a size
+  const updateWarehouseEntry = useCallback((size: string, idx: number, patch: Partial<WarehouseEntry>) => {
+    const row = getSizeRow(size)
+    updateSizeWarehouses(size, row.warehouses.map((w, i) => i === idx ? { ...w, ...patch } : w))
+  }, [getSizeRow, updateSizeWarehouses])
+
+  // Validate: every warehouse entry with qty > 0 must have a warehouseId
+  const validateWarehouseSelection = useCallback(() => {
+    return variant.sizeQuantities.every(sq =>
+      sq.warehouses.every(w => w.quantity <= 0 || !!w.warehouseId)
+    )
   }, [variant.sizeQuantities])
-
-  // Warehouse inventory
-  const addWarehouse = useCallback(() => {
-    if (!warehouses?.length) return
-    const usedIds = variant.inventory.map(i => i.warehouseId)
-    const available = warehouses.filter((w: any) => !usedIds.includes(w.id))
-    if (!available.length) return
-    const w = available[0]
-    set('inventory', [...variant.inventory, { warehouseId: w.id, warehouseName: w.name, city: w.city || w.name, quantity: 0 }])
-  }, [warehouses, variant.inventory, set])
-
-  const updateWarehouse = useCallback((warehouseId: string, qty: number) => {
-    set('inventory', variant.inventory.map(i => i.warehouseId === warehouseId ? { ...i, quantity: qty } : i))
-  }, [variant.inventory, set])
-
-  const removeWarehouse = useCallback((warehouseId: string) => {
-    set('inventory', variant.inventory.filter(i => i.warehouseId !== warehouseId))
-  }, [variant.inventory, set])
-
-  const changeWarehouse = useCallback((oldId: string, newId: string) => {
-    if (!warehouses) return
-    const w = warehouses.find((x: any) => x.id === newId)
-    if (!w) return
-    set('inventory', variant.inventory.map(i => i.warehouseId === oldId ? { ...i, warehouseId: newId, warehouseName: w.name, city: w.city || w.name } : i))
-  }, [warehouses, variant.inventory, set])
-
-  const warehouseTotalStock = useMemo(() => variant.inventory.reduce((s, i) => s + i.quantity, 0), [variant.inventory])
 
   return (
     <div className="rounded-2xl overflow-hidden transition-all" style={{ background: 'var(--portal-surface)', border: `1px solid ${variant.isActive ? 'var(--portal-border)' : 'rgba(239,68,68,0.3)'}` }}>
@@ -171,28 +184,98 @@ export function VariantCard({ variant, index, productSlug, sizes, onChange, onRe
             </label>
           </div>
 
-          {/* ══ Size × Quantity Grid ══ */}
+          {/* ══ Size × Multi-Warehouse Inventory ══ */}
           <div className="space-y-2">
             <p className="text-xs font-semibold" style={{ color: 'var(--portal-text)' }}>
-              Size-wise Quantity
-              <span className="ml-2 text-[10px] font-normal" style={{ color: 'var(--portal-muted)' }}>Total: {totalStock} units</span>
+              Size-wise Inventory
+              <span className="ml-2 text-[10px] font-normal" style={{ color: 'var(--portal-muted)' }}>Total: {totalStock} units across {totalWarehouseEntries} warehouse locations</span>
             </p>
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
-              {sizes.map(size => (
-                <div key={size} className="flex flex-col items-center gap-1 p-2 rounded-xl" style={{ background: 'var(--portal-elevated)' }}>
-                  <span className="text-[10px] font-bold" style={{ color: 'var(--portal-text)' }}>{size}</span>
-                  <input
-                    type="number"
-                    value={getQty(size) || ''}
-                    onChange={e => updateSizeQty(size, parseInt(e.target.value) || 0)}
-                    min={0}
-                    placeholder="0"
-                    className="w-full text-center text-xs font-mono rounded-lg px-1 py-1.5 border-0 outline-none"
-                    style={{ background: 'var(--portal-surface)', color: 'var(--portal-text)' }}
-                  />
-                </div>
-              ))}
+            <div className="space-y-3">
+              {sizes.map(size => {
+                const row = getSizeRow(size)
+                const sizeTotal = row.warehouses.reduce((s, w) => s + w.quantity, 0)
+                return (
+                  <div key={size} className="p-3 rounded-xl space-y-2" style={{ background: 'var(--portal-elevated)' }}>
+                    {/* Size header */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg" style={{ background: 'var(--portal-surface)', color: 'var(--portal-text)' }}>{size}</span>
+                        <span className="text-[10px] font-mono" style={{ color: 'var(--portal-muted)' }}>{sizeTotal} units total</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => addWarehouseToSize(size)}
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-colors hover:bg-[var(--portal-accent)]/10"
+                        style={{ color: 'var(--portal-accent)', border: '1px dashed var(--portal-border)' }}
+                      >
+                        <Plus size={10} /> Add Warehouse
+                      </button>
+                    </div>
+
+                    {/* Warehouse entries for this size */}
+                    {row.warehouses.length === 0 && (
+                      <p className="text-[10px] py-2 text-center" style={{ color: 'var(--portal-muted)' }}>
+                        No warehouse locations added. Click "Add Warehouse" to assign stock.
+                      </p>
+                    )}
+                    {row.warehouses.map((wEntry, wIdx) => {
+                      const wh = resolveWarehouse(wEntry.warehouseId)
+                      // Already-used warehouse IDs for this size (exclude current row)
+                      const usedIds = row.warehouses.filter((_, i) => i !== wIdx).map(w => w.warehouseId)
+                      return (
+                        <div key={wIdx} className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_100px_28px] gap-2 p-2 rounded-lg items-end" style={{ background: 'var(--portal-surface)' }}>
+                          <div className="space-y-1">
+                            <label className="text-[10px]" style={{ color: 'var(--portal-muted)' }}>Warehouse location</label>
+                            <select
+                              value={wEntry.warehouseId}
+                              onChange={e => updateWarehouseEntry(size, wIdx, { warehouseId: e.target.value })}
+                              className="portal-input-sm w-full"
+                            >
+                              <option value="">Select warehouse</option>
+                              {warehouseOptions.map((w: any) => (
+                                <option key={w.id} value={w.id} disabled={usedIds.includes(w.id)}>
+                                  {w.name}{w.city ? ` — ${w.city}` : ''}{w.pincode ? ` (${w.pincode})` : ''}
+                                </option>
+                              ))}
+                            </select>
+                            {wh && (
+                              <p className="text-[10px] flex items-center gap-1" style={{ color: 'var(--portal-muted)' }}>
+                                <MapPin size={8} />
+                                {[wh.city, wh.state, wh.pincode].filter(Boolean).join(' • ')}
+                              </p>
+                            )}
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px]" style={{ color: 'var(--portal-muted)' }}>Qty</label>
+                            <input
+                              type="number"
+                              value={wEntry.quantity || ''}
+                              onChange={e => updateWarehouseEntry(size, wIdx, { quantity: parseInt(e.target.value) || 0 })}
+                              min={0}
+                              placeholder="0"
+                              className="portal-input-sm w-full text-center font-mono"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeWarehouseFromSize(size, wIdx)}
+                            className="p-1.5 rounded-lg hover:bg-red-500/10 text-red-400 self-end mb-0.5"
+                            title="Remove warehouse"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
             </div>
+            {!validateWarehouseSelection() && (
+              <p className="text-[10px] text-amber-400">
+                Please select a warehouse for every entry that has stock greater than 0.
+              </p>
+            )}
           </div>
 
           {/* Pricing */}
@@ -219,47 +302,6 @@ export function VariantCard({ variant, index, productSlug, sizes, onChange, onRe
               {profit !== null && <span className="text-[10px]" style={{ color: 'var(--portal-muted)' }}>Profit: <strong className="text-purple-400">₹{profit}</strong></span>}
             </div>
           )}
-
-          {/* Warehouse Inventory */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold" style={{ color: 'var(--portal-text)' }}>
-                <Truck size={12} className="inline mr-1" /> Warehouse Inventory
-                <span className="ml-2 text-[10px] font-normal" style={{ color: 'var(--portal-muted)' }}>Total: {warehouseTotalStock}</span>
-              </p>
-              <button type="button" onClick={addWarehouse} className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-lg border border-dashed border-[var(--portal-border)] hover:border-[var(--portal-accent)] transition-colors" style={{ color: 'var(--portal-muted)' }}>
-                <Plus size={10} /> Add Location
-              </button>
-            </div>
-
-            {variant.inventory.length === 0 ? (
-              <p className="text-[10px] p-3 rounded-lg text-center" style={{ background: 'var(--portal-elevated)', color: 'var(--portal-muted)' }}>
-                No warehouse locations added yet.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {variant.inventory.map((inv, i) => (
-                  <div key={inv.warehouseId} className="flex items-center gap-2 p-2 rounded-lg" style={{ background: 'var(--portal-elevated)' }}>
-                    <span className="text-[10px] w-4 text-center font-mono" style={{ color: 'var(--portal-muted)' }}>{i === 0 ? '★' : i + 1}</span>
-                    <select
-                      value={inv.warehouseId}
-                      onChange={e => changeWarehouse(inv.warehouseId, e.target.value)}
-                      className="portal-input-sm flex-1"
-                    >
-                      {warehouses?.map((w: any) => (
-                        <option key={w.id} value={w.id}>{w.name} ({w.city || w.state || ''})</option>
-                      ))}
-                    </select>
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px]" style={{ color: 'var(--portal-muted)' }}>Qty:</span>
-                      <input type="number" value={inv.quantity} onChange={e => updateWarehouse(inv.warehouseId, parseInt(e.target.value) || 0)} className="portal-input-sm w-16 text-center font-mono" min={0} />
-                    </div>
-                    <button type="button" onClick={() => removeWarehouse(inv.warehouseId)} className="p-1 rounded hover:bg-red-500/10 text-red-400"><X size={12} /></button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
 
           {/* Variant Images */}
           <div className="space-y-2">

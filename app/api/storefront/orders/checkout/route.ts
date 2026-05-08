@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     let subtotal = 0
 
     for (const item of cart.items) {
-      const available = (item.variant.inventory?.quantity ?? 0) - (item.variant.inventory?.reserved ?? 0)
+      const available = item.variant.inventory.reduce((s, inv) => s + (inv.quantity - inv.reserved), 0)
       if (available < item.quantity) {
         return badRequest(`Insufficient stock for ${item.variant.product.name}`)
       }
@@ -109,13 +109,20 @@ export async function POST(request: Request) {
         },
       })
 
-      // Reserve inventory
+      // Reserve inventory across warehouses (greedy: reserve from largest stock first)
       for (const item of cart.items) {
-        if (item.variant.inventory) {
-          await tx.inventory.update({
-            where: { id: item.variant.inventory.id },
-            data: { reserved: { increment: item.quantity } },
-          })
+        let remaining = item.quantity
+        const sortedInv = [...item.variant.inventory].sort((a, b) => (b.quantity - b.reserved) - (a.quantity - a.reserved))
+        for (const inv of sortedInv) {
+          if (remaining <= 0) break
+          const canReserve = Math.min(remaining, inv.quantity - inv.reserved)
+          if (canReserve > 0) {
+            await tx.inventory.update({
+              where: { id: inv.id },
+              data: { reserved: { increment: canReserve } },
+            })
+            remaining -= canReserve
+          }
         }
       }
 

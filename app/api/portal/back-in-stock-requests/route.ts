@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
         productName: v?.product?.name ?? 'Unknown',
         sku: v?.sku ?? '',
         variantName: [v?.color, v?.size].filter(Boolean).join(' / '),
-        currentStock: v?.inventory?.quantity ?? 0,
+        currentStock: v?.inventory?.reduce((s: number, inv: { quantity: number }) => s + inv.quantity, 0) ?? 0,
       }
     })
 
