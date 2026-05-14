@@ -103,8 +103,9 @@ export async function GET(request: Request) {
 // ─── POST: Create a new product ─────────────────────────────────
 
 const warehouseEntrySchema = z.object({
-  warehouseId: z.string().min(1),
-  quantity:    z.number().int().min(0).default(0),
+  warehouseName: z.string().min(1),
+  pincode:       z.string().length(6),
+  quantity:      z.number().int().min(0).default(0),
 })
 
 const variantSchema = z.object({
@@ -196,9 +197,16 @@ export async function POST(request: Request) {
         // Create one Inventory row per warehouse entry
         if (v.warehouses.length > 0) {
           for (const wh of v.warehouses) {
-            if (wh.quantity > 0 && wh.warehouseId) {
+            if (wh.quantity > 0 && wh.warehouseName && wh.pincode) {
+              // Find or create warehouse by pincode+name
+              const code = `${wh.warehouseName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()}-${wh.pincode}`
+              const warehouse = await tx.warehouseLocation.upsert({
+                where: { code },
+                update: { name: wh.warehouseName, pincode: wh.pincode },
+                create: { name: wh.warehouseName, code, pincode: wh.pincode, isActive: true },
+              })
               await tx.inventory.create({
-                data: { variantId: variant.id, quantity: wh.quantity, warehouseId: wh.warehouseId },
+                data: { variantId: variant.id, quantity: wh.quantity, warehouseId: warehouse.id },
               })
             }
           }

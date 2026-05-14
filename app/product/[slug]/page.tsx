@@ -17,6 +17,7 @@ import { PriceDisplay } from '@/components/ui/PriceDisplay'
 import { ClayButton } from '@/components/ui/ClayButton'
 import { ClayBadge } from '@/components/ui/ClayBadge'
 import { ClayProductCard } from '@/components/ui/ClayProductCard'
+import { DeliveryEstimate } from '@/components/storefront/pdp/DeliveryEstimate'
 import { ProductDetailSkeleton } from '@/components/ui/SkeletonLoaders'
 import { useCart } from '@/hooks/useCart'
 import { useAuth } from '@/hooks/useAuth'
@@ -342,6 +343,11 @@ export default function ProductDetailPage() {
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {/* Delivery Estimate */}
+              <motion.div variants={fadeUpVariants} className="pt-1">
+                <DeliveryEstimate variantId={selectedVariantId} />
+              </motion.div>
 
               {/* Quantity + CTA */}
               <motion.div variants={fadeUpVariants} className="space-y-3 pt-1">

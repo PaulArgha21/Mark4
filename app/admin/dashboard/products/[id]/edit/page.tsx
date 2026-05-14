@@ -134,10 +134,13 @@ export default function EditProductPage() {
               warehouses: Array.isArray(v.inventory)
                 ? v.inventory
                     .filter((inv: any) => inv.warehouseId)
-                    .map((inv: any) => ({ warehouseId: inv.warehouseId, quantity: inv.quantity || 0 }))
-                : v.inventory?.warehouseId
-                  ? [{ warehouseId: v.inventory.warehouseId, quantity: v.inventory.quantity || 0 }]
-                  : [],
+                    .map((inv: any) => ({
+                      warehouseId: inv.warehouseId,
+                      warehouseName: inv.warehouse?.name || '',
+                      pincode: inv.warehouse?.pincode || '',
+                      quantity: inv.quantity || 0,
+                    }))
+                : [],
             })),
             isActive: data.isActive,
           }
@@ -184,8 +187,8 @@ export default function EditProductPage() {
           sortOrder: ci * 100 + si,
           isActive: v.isActive && sq.warehouses.some(w => w.quantity > 0),
           warehouses: sq.warehouses
-            .filter(w => w.warehouseId)
-            .map(w => ({ warehouseId: w.warehouseId, quantity: w.quantity })),
+            .filter(w => w.warehouseName.trim() && w.pincode.length === 6)
+            .map(w => ({ warehouseName: w.warehouseName.trim(), pincode: w.pincode, quantity: w.quantity })),
         }))
       ) : undefined
 

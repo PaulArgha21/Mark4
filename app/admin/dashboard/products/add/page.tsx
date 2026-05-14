@@ -108,8 +108,8 @@ export default function AddProductPage() {
                 weight: v.weight ? parseFloat(v.weight) : undefined,
                 sortOrder: ci * 100 + si,
                 warehouses: sq.warehouses
-                  .filter(w => w.quantity > 0 && w.warehouseId)
-                  .map(w => ({ warehouseId: w.warehouseId, quantity: w.quantity })),
+                  .filter(w => w.quantity > 0 && w.warehouseName.trim() && w.pincode.length === 6)
+                  .map(w => ({ warehouseName: w.warehouseName.trim(), pincode: w.pincode, quantity: w.quantity })),
               }))
           ),
         }),

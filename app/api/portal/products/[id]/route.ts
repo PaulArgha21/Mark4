@@ -26,7 +26,10 @@ export async function GET(
           orderBy: { sortOrder: 'asc' },
           include: {
             inventory: {
-              select: { id: true, quantity: true, reserved: true, lowStockThreshold: true, warehouseId: true },
+              select: {
+                id: true, quantity: true, reserved: true, lowStockThreshold: true, warehouseId: true,
+                warehouse: { select: { name: true, pincode: true, city: true, state: true } },
+              },
               orderBy: { quantity: 'desc' as const },
             },
           },
@@ -58,8 +61,9 @@ export async function GET(
 // ─── PUT: Update product ────────────────────────────────────────
 
 const warehouseEntrySchema = z.object({
-  warehouseId: z.string().min(1),
-  quantity:    z.number().int().min(0).default(0),
+  warehouseName: z.string().min(1),
+  pincode:       z.string().length(6),
+  quantity:      z.number().int().min(0).default(0),
 })
 
 const variantUpsertSchema = z.object({
@@ -177,9 +181,15 @@ export async function PUT(
           await tx.inventory.deleteMany({ where: { variantId } })
           if (v.warehouses.length > 0) {
             for (const wh of v.warehouses) {
-              if (wh.warehouseId) {
+              if (wh.warehouseName && wh.pincode) {
+                const code = `${wh.warehouseName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()}-${wh.pincode}`
+                const warehouse = await tx.warehouseLocation.upsert({
+                  where: { code },
+                  update: { name: wh.warehouseName, pincode: wh.pincode },
+                  create: { name: wh.warehouseName, code, pincode: wh.pincode, isActive: true },
+                })
                 await tx.inventory.create({
-                  data: { variantId, quantity: wh.quantity, warehouseId: wh.warehouseId },
+                  data: { variantId, quantity: wh.quantity, warehouseId: warehouse.id },
                 })
               }
             }

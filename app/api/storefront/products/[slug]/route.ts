@@ -31,7 +31,12 @@ export async function GET(
           where: { isActive: true },
           orderBy: { sortOrder: 'asc' },
           include: {
-            inventory: { select: { quantity: true, reserved: true } },
+            inventory: {
+              select: {
+                quantity: true, reserved: true,
+                warehouse: { select: { pincode: true, city: true } },
+              },
+            },
             media: { orderBy: { sortOrder: 'asc' } },
           },
         },
@@ -82,6 +87,10 @@ export async function GET(
       sortOrder: v.sortOrder,
       media: v.media,
       availableQty: Math.max(0, v.inventory.reduce((s, inv) => s + (inv.quantity - inv.reserved), 0)),
+      warehousePincodes: v.inventory
+        .filter(inv => inv.warehouse?.pincode && inv.quantity > inv.reserved)
+        .map(inv => inv.warehouse!.pincode!)
+        .filter((p, i, arr) => arr.indexOf(p) === i),
     }))
 
     // 4. Rating distribution
