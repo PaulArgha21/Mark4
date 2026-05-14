@@ -3,7 +3,10 @@ import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import useSWR from 'swr'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Package, FileText, Layers, Search, Save, Loader2, CheckCircle2 } from 'lucide-react'
+import {
+  ArrowLeft, Package, FileText, Layers, Search, Save, Loader2,
+  CheckCircle2, ExternalLink, AlertTriangle, Shield,
+} from 'lucide-react'
 import { PortalShell } from '@/components/portal/layout/PortalShell'
 import { ClayButton } from '@/components/ui/ClayButton'
 import { BasicInfoSection, BasicInfoValues } from '../../_components/BasicInfoSection'
@@ -30,13 +33,9 @@ type Section = 'basic' | 'description' | 'variants' | 'seo'
 const SECTIONS = [
   { key: 'basic' as Section, label: 'Basic Info', icon: Package },
   { key: 'description' as Section, label: 'Description', icon: FileText },
-  { key: 'variants' as Section, label: 'Variants', icon: Layers },
+  { key: 'variants' as Section, label: 'Variants & Inventory', icon: Layers },
   { key: 'seo' as Section, label: 'SEO', icon: Search },
 ]
-
-function slugify(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-}
 
 function inferSkuPrefix(sku?: string): string {
   if (!sku) return ''
@@ -49,12 +48,13 @@ export default function EditProductPage() {
   const params = useParams()
   const productId = params.id as string
 
-  const { data: product, isLoading: productLoading } = useSWR(`/api/portal/products/${productId}`, fetcher)
+  const { data: product, isLoading: productLoading, mutate } = useSWR(`/api/portal/products/${productId}`, fetcher)
 
   const [saving, setSaving] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [activeSection, setActiveSection] = useState<Section>('basic')
   const [saveError, setSaveError] = useState('')
+  const [lastSaved, setLastSaved] = useState<string | null>(null)
 
   // ── Section State ──
   const [basicInfo, setBasicInfo] = useState<BasicInfoValues>({
@@ -165,7 +165,57 @@ export default function EditProductPage() {
     return Math.round(items.filter(Boolean).length / items.length * 100)
   }, [completion])
 
-  // ── Save ──
+  // ── Save Individual Variant ──
+  const handleSaveVariant = useCallback(async (variant: VariantFormValues) => {
+    if (!variant.sku || !variant.price) {
+      toast.error('Variant must have SKU and price before saving')
+      return
+    }
+
+    const price = parseFloat(variant.price)
+    if (isNaN(price) || price < 0) {
+      toast.error('Invalid variant price')
+      return
+    }
+
+    try {
+      const res = await fetch(`/api/portal/products/${productId}/variants`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          colorName: variant.colorName || 'Default',
+          colorHex: variant.colorHex || undefined,
+          sku: variant.sku,
+          price,
+          compareAtPrice: variant.compareAtPrice ? parseFloat(variant.compareAtPrice) : undefined,
+          costPrice: variant.costPrice ? parseFloat(variant.costPrice) : undefined,
+          weight: variant.weight ? parseFloat(variant.weight) : undefined,
+          isActive: variant.isActive,
+          sizeQuantities: variant.sizeQuantities.map(sq => ({
+            size: sq.size,
+            warehouses: sq.warehouses
+              .filter(w => w.warehouseName.trim() && w.pincode.length === 6 && w.quantity > 0)
+              .map(w => ({ warehouseName: w.warehouseName.trim(), pincode: w.pincode, quantity: w.quantity })),
+          })),
+        }),
+      })
+
+      if (!res.ok) {
+        const errMsg = await readErrorMessage(res, 'Failed to save variant')
+        toast.error(errMsg)
+        return
+      }
+
+      toast.success(`Variant "${variant.colorName}" saved`)
+      setLastSaved(new Date().toLocaleTimeString())
+      mutate()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save variant')
+    }
+  }, [productId, mutate])
+
+  // ── Save All ──
   const handleSave = useCallback(async () => {
     if (!basicInfo.name.trim()) { toast.error('Product name is required'); return }
 
@@ -182,7 +232,7 @@ export default function EditProductPage() {
           size: sq.size || undefined,
           color: v.colorName || undefined,
           colorHex: v.colorHex || undefined,
-          priceDelta: parseFloat(v.price) - lowestPrice,
+          priceDelta: (parseFloat(v.price) || 0) - lowestPrice,
           weight: v.weight ? parseFloat(v.weight) : undefined,
           sortOrder: ci * 100 + si,
           isActive: v.isActive && sq.warehouses.some(w => w.quantity > 0),
@@ -236,7 +286,8 @@ export default function EditProductPage() {
       }
 
       toast.success('Product updated successfully')
-      router.push('/admin/dashboard/products')
+      setLastSaved(new Date().toLocaleTimeString())
+      mutate()
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Something went wrong while saving the product.'
       setSaveError(msg)
@@ -244,13 +295,14 @@ export default function EditProductPage() {
     } finally {
       setSaving(false)
     }
-  }, [basicInfo, descriptionInfo, variants, seoInfo, productId, product, router])
+  }, [basicInfo, descriptionInfo, variants, seoInfo, productId, product, mutate])
 
   if (productLoading) {
     return (
       <PortalShell>
-        <div className="flex items-center justify-center h-64">
-          <Loader2 size={32} className="animate-spin" style={{ color: 'var(--portal-accent)' }} />
+        <div className="flex flex-col items-center justify-center h-64 gap-3">
+          <Loader2 size={28} className="animate-spin" style={{ color: 'var(--portal-accent)' }} />
+          <p className="text-xs font-medium" style={{ color: 'var(--portal-muted)' }}>Loading product data...</p>
         </div>
       </PortalShell>
     )
@@ -259,9 +311,12 @@ export default function EditProductPage() {
   if (!product) {
     return (
       <PortalShell>
-        <div className="text-center py-12">
-          <p className="text-sm" style={{ color: 'var(--portal-muted)' }}>Product not found</p>
-          <button onClick={() => router.back()} className="text-xs mt-2" style={{ color: 'var(--portal-accent)' }}>Go back</button>
+        <div className="flex flex-col items-center justify-center h-64 gap-3">
+          <AlertTriangle size={28} style={{ color: 'var(--portal-muted)' }} />
+          <p className="text-sm font-medium" style={{ color: 'var(--portal-muted)' }}>Product not found</p>
+          <button onClick={() => router.back()} className="text-xs font-semibold px-4 py-2 rounded-xl" style={{ color: 'var(--portal-accent)', background: 'var(--portal-elevated)' }}>
+            Go back
+          </button>
         </div>
       </PortalShell>
     )
@@ -269,79 +324,139 @@ export default function EditProductPage() {
 
   return (
     <PortalShell>
-      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-6 max-w-7xl">
-        {/* ── Header ── */}
-        <motion.div variants={fadeUpVariants} className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <button onClick={() => router.back()} className="p-2 rounded-xl hover:bg-[var(--portal-elevated)]" style={{ color: 'var(--portal-muted)' }}>
-              <ArrowLeft size={20} />
-            </button>
-            <div>
-              <h1 className="font-display text-2xl font-bold" style={{ color: 'var(--portal-text)' }}>Edit Product</h1>
-              <p className="text-xs" style={{ color: 'var(--portal-muted)' }}>
-                {basicInfo.name}
-                <span className="font-mono ml-1 opacity-60">/{product.slug}</span>
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ background: 'var(--portal-elevated)' }}>
-              <div className="relative w-6 h-6">
-                <svg viewBox="0 0 36 36" className="w-6 h-6 -rotate-90">
-                  <circle cx="18" cy="18" r="15" fill="none" stroke="var(--portal-border)" strokeWidth="3" />
-                  <circle cx="18" cy="18" r="15" fill="none" stroke="var(--portal-accent)" strokeWidth="3" strokeDasharray={`${completionPct * 0.94} 100`} strokeLinecap="round" />
-                </svg>
+      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-5 max-w-7xl">
+        {/* ═══ HEADER ═══ */}
+        <motion.div variants={fadeUpVariants}>
+          <div className="flex items-start justify-between flex-wrap gap-4 p-5 rounded-2xl" style={{ background: 'var(--portal-surface)', border: '1px solid var(--portal-border)' }}>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => router.back()}
+                className="p-2.5 rounded-xl transition-all hover:scale-105"
+                style={{ background: 'var(--portal-elevated)', color: 'var(--portal-muted)' }}
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <div>
+                <h1 className="font-display text-xl font-bold" style={{ color: 'var(--portal-text)' }}>
+                  {basicInfo.name || 'Edit Product'}
+                </h1>
+                <div className="flex items-center gap-3 mt-0.5">
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded" style={{ background: 'var(--portal-elevated)', color: 'var(--portal-muted)' }}>
+                    /{product.slug}
+                  </span>
+                  <span className={`text-[9px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full ${
+                    basicInfo.isPublished ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'
+                  }`}>
+                    {basicInfo.isPublished ? 'Published' : 'Draft'}
+                  </span>
+                  {lastSaved && (
+                    <span className="text-[9px] flex items-center gap-1" style={{ color: 'var(--portal-muted)' }}>
+                      <Shield size={8} /> Saved {lastSaved}
+                    </span>
+                  )}
+                </div>
               </div>
-              <span className="text-[10px] font-medium" style={{ color: 'var(--portal-muted)' }}>{completionPct}%</span>
             </div>
-            <ClayButton variant="ghost" size="sm" onClick={() => router.push(`/product/${product.slug}`)} disabled={saving}>
-              Preview
-            </ClayButton>
-            <ClayButton variant="primary" size="sm" onClick={handleSave} disabled={saving}>
-              {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-              Save Changes
-            </ClayButton>
+
+            {/* Action Bar */}
+            <div className="flex items-center gap-2">
+              {/* Completion indicator */}
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: 'var(--portal-elevated)' }}>
+                <div className="relative w-7 h-7">
+                  <svg viewBox="0 0 36 36" className="w-7 h-7 -rotate-90">
+                    <circle cx="18" cy="18" r="15" fill="none" stroke="var(--portal-border)" strokeWidth="2.5" />
+                    <circle
+                      cx="18" cy="18" r="15" fill="none"
+                      stroke={completionPct === 100 ? '#4ade80' : 'var(--portal-accent)'}
+                      strokeWidth="2.5"
+                      strokeDasharray={`${completionPct * 0.94} 100`}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  {completionPct === 100 && (
+                    <CheckCircle2 size={12} className="absolute inset-0 m-auto text-emerald-400" />
+                  )}
+                </div>
+                <span className="text-[10px] font-bold" style={{ color: completionPct === 100 ? '#4ade80' : 'var(--portal-muted)' }}>
+                  {completionPct}%
+                </span>
+              </div>
+
+              <ClayButton
+                variant="ghost"
+                size="sm"
+                onClick={() => window.open(`/product/${product.slug}`, '_blank')}
+                disabled={saving}
+              >
+                <ExternalLink size={14} />
+                Preview
+              </ClayButton>
+
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white transition-all hover:opacity-90 active:scale-[0.97] disabled:opacity-50"
+                style={{ background: 'var(--portal-accent)', boxShadow: '0 4px 12px rgba(214,51,108,0.25)' }}
+              >
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Save All Changes
+              </button>
+            </div>
           </div>
+
+          {/* Error banner */}
           {saveError && (
-            <div className="w-full rounded-xl px-3 py-2 text-xs border border-red-500/30 bg-red-500/10 text-red-300">
+            <div className="mt-3 flex items-center gap-2 rounded-xl px-4 py-3 text-xs font-medium border border-red-500/30 bg-red-500/10 text-red-300">
+              <AlertTriangle size={14} />
               {saveError}
+              <button onClick={() => setSaveError('')} className="ml-auto text-red-400 hover:text-red-300 text-[10px] font-bold">Dismiss</button>
             </div>
           )}
         </motion.div>
 
-        {/* ── Section Tabs ── */}
-        <motion.div variants={fadeUpVariants} className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: 'var(--portal-elevated)' }}>
-          {SECTIONS.map(s => (
-            <button
-              key={s.key}
-              onClick={() => setActiveSection(s.key)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
-                activeSection === s.key ? 'shadow-sm' : 'hover:opacity-80'
-              }`}
-              style={{
-                background: activeSection === s.key ? 'var(--portal-surface)' : 'transparent',
-                color: activeSection === s.key ? 'var(--portal-accent)' : 'var(--portal-muted)',
-              }}
-            >
-              <s.icon size={13} />
-              {s.label}
-              {completion[s.key] && <CheckCircle2 size={10} className="text-green-400" />}
-            </button>
-          ))}
+        {/* ═══ SECTION TABS ═══ */}
+        <motion.div variants={fadeUpVariants}>
+          <div className="flex gap-1 p-1 rounded-2xl overflow-x-auto" style={{ background: 'var(--portal-elevated)', border: '1px solid var(--portal-border)' }}>
+            {SECTIONS.map(s => (
+              <button
+                key={s.key}
+                onClick={() => setActiveSection(s.key)}
+                className={`flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
+                  activeSection === s.key ? 'shadow-md' : 'hover:opacity-80'
+                }`}
+                style={{
+                  background: activeSection === s.key ? 'var(--portal-surface)' : 'transparent',
+                  color: activeSection === s.key ? 'var(--portal-accent)' : 'var(--portal-muted)',
+                  boxShadow: activeSection === s.key ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
+                }}
+              >
+                <s.icon size={14} />
+                {s.label}
+                {completion[s.key] && <CheckCircle2 size={11} className="text-emerald-400" />}
+              </button>
+            ))}
+          </div>
         </motion.div>
 
         {/* ═══ BASIC INFO ═══ */}
         {activeSection === 'basic' && (
-          <motion.div variants={fadeUpVariants}>
+          <motion.div variants={fadeUpVariants} className="space-y-4">
             <BasicInfoSection values={basicInfo} onChange={setBasicInfo} />
             {/* Product Meta */}
-            <div className="mt-4 rounded-2xl p-4 space-y-2" style={{ background: 'var(--portal-surface)', border: '1px solid var(--portal-border)' }}>
-              <p className="text-xs font-semibold" style={{ color: 'var(--portal-text)' }}>Product Info</p>
-              <div className="flex flex-wrap gap-4 text-[10px]" style={{ color: 'var(--portal-muted)' }}>
-                <p>ID: <span className="font-mono">{product.id}</span></p>
-                <p>Slug: <span className="font-mono">{product.slug}</span></p>
-                <p>Created: {new Date(product.createdAt).toLocaleDateString()}</p>
-                <p>Updated: {new Date(product.updatedAt).toLocaleDateString()}</p>
+            <div className="rounded-2xl p-5 space-y-3" style={{ background: 'var(--portal-surface)', border: '1px solid var(--portal-border)' }}>
+              <p className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--portal-muted)' }}>Product Metadata</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { label: 'Product ID', value: product.id },
+                  { label: 'Slug', value: product.slug },
+                  { label: 'Created', value: new Date(product.createdAt).toLocaleDateString() },
+                  { label: 'Updated', value: new Date(product.updatedAt).toLocaleDateString() },
+                ].map(item => (
+                  <div key={item.label} className="px-3 py-2 rounded-xl" style={{ background: 'var(--portal-elevated)' }}>
+                    <p className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: 'var(--portal-muted)' }}>{item.label}</p>
+                    <p className="text-[11px] font-mono mt-0.5 truncate" style={{ color: 'var(--portal-text)' }}>{item.value}</p>
+                  </div>
+                ))}
               </div>
             </div>
           </motion.div>
@@ -363,10 +478,16 @@ export default function EditProductPage() {
         {/* ═══ VARIANTS ═══ */}
         {activeSection === 'variants' && (
           <motion.div variants={fadeUpVariants}>
+            {/* Hint */}
+            <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl mb-4 text-[11px] font-medium" style={{ background: 'rgba(214,51,108,0.06)', color: 'var(--portal-accent)', border: '1px solid rgba(214,51,108,0.15)' }}>
+              <Save size={12} />
+              Each variant has its own <strong>Save</strong> button — save individual variants without affecting others.
+            </div>
             <VariantManager
               variants={variants}
               onChange={setVariants}
               productSlug={product.slug}
+              onSaveVariant={handleSaveVariant}
             />
           </motion.div>
         )}

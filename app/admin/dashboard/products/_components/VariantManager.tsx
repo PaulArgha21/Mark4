@@ -10,6 +10,7 @@ interface VariantManagerProps {
   variants: VariantFormValues[]
   onChange: (variants: VariantFormValues[]) => void
   productSlug: string
+  onSaveVariant?: (variant: VariantFormValues) => Promise<void>
 }
 
 function generateSkuPrefix(slug: string, color: string): string {
@@ -35,7 +36,7 @@ function makeColorVariant(slug: string, color: ColorOption, sizes: string[]): Va
   }
 }
 
-export function VariantManager({ variants, onChange, productSlug }: VariantManagerProps) {
+export function VariantManager({ variants, onChange, productSlug, onSaveVariant }: VariantManagerProps) {
   const [selectedColors, setSelectedColors] = useState<ColorOption[]>([])
   const [selectedSizes, setSelectedSizes] = useState<string[]>([])
   const [sizeType, setSizeType] = useState<SizeType>('clothing')
@@ -246,6 +247,7 @@ export function VariantManager({ variants, onChange, productSlug }: VariantManag
             onChange={updated => updateVariant(v._localId, updated)}
             onRemove={() => removeVariant(v._localId)}
             onDuplicate={() => duplicateVariant(v._localId)}
+            onSave={onSaveVariant ? () => onSaveVariant(v) : undefined}
             defaultExpanded={variants.length === 1}
           />
         ))}

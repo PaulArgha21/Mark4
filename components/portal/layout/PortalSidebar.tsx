@@ -146,8 +146,12 @@ export function PortalSidebar() {
               </p>
             </div>
             <button
-              onClick={() => {
+              onClick={async () => {
+                try {
+                  await fetch('/api/employee/auth/logout', { method: 'POST', credentials: 'include' })
+                } catch { /* still redirect */ }
                 document.cookie = 'employee_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+                document.cookie = 'employee_refresh_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
                 window.location.href = '/admin/login'
               }}
               className="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
