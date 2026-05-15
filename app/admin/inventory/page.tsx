@@ -7,7 +7,7 @@ import { PortalShell } from '@/components/portal/layout/PortalShell'
 import { staggerContainer, fadeUpVariants, springs } from '@/lib/animations'
 
 interface InventorySummary { totalSKUs: number; outOfStock: number; lowStock: number; totalQuantity: number; totalReserved: number; pendingPurchaseOrders: number; activeSuppliers: number }
-interface StockItem { id: string; sku: string; productName: string; size: string | null; color: string | null; quantity: number; reserved: number; available: number; isLowStock: boolean; isOutOfStock: boolean; lowStockThreshold: number }
+interface StockItem { id: string; sku: string; productId: string; productName: string; size: string | null; color: string | null; quantity: number; reserved: number; available: number; isLowStock: boolean; isOutOfStock: boolean; lowStockThreshold: number }
 
 export default function InventoryPortal() {
   const [summary, setSummary] = useState<InventorySummary | null>(null)
@@ -111,7 +111,11 @@ export default function InventoryPortal() {
                 ) : lowStockItems.map(row => (
                   <tr key={row.id} style={{ borderBottom: '1px solid var(--portal-border)' }} className="hover:bg-white/[0.02]">
                     <td className="px-4 py-3 text-xs font-mono" style={{ color: 'var(--portal-muted)' }}>{row.sku}</td>
-                    <td className="px-4 py-3 text-sm" style={{ color: 'var(--portal-text)' }}>{row.productName}</td>
+                    <td className="px-4 py-3">
+                      <Link href={`/admin/inventory/product/${row.productId}`} className="text-sm font-medium hover:underline" style={{ color: 'var(--portal-text)' }}>
+                        {row.productName}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3 text-sm" style={{ color: 'var(--portal-muted)' }}>{[row.color, row.size].filter(Boolean).join(' / ') || '-'}</td>
                     <td className="px-4 py-3 text-sm font-bold" style={{ color: row.isOutOfStock ? '#e03131' : '#f08c00' }}>{row.quantity}</td>
                     <td className="px-4 py-3 text-sm" style={{ color: 'var(--portal-muted)' }}>{row.reserved}</td>

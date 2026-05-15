@@ -39,7 +39,7 @@ export async function PUT(
   try {
     const product = await db.product.findUnique({
       where: { id: params.id },
-      select: { id: true, slug: true, basePrice: true },
+      select: { id: true, slug: true, basePrice: true, salePrice: true, costPrice: true },
     })
     if (!product) return notFound('Product not found')
 
@@ -48,8 +48,24 @@ export async function PUT(
     if (!parsed.success) return badRequest('Invalid variant data', parsed.error.flatten())
 
     const data = parsed.data
-    const basePrice = Number(product.basePrice) || 0
-    const priceDelta = data.price - basePrice
+    // Effective selling base = salePrice if discount exists, else basePrice
+    const sp = product.salePrice ? Number(product.salePrice) : null
+    const bp = Number(product.basePrice) || 0
+    const effectiveBase = sp || bp
+    const priceDelta = data.price - effectiveBase
+
+    // Update product-level pricing if compare/cost changed
+    const productUpdates: Record<string, unknown> = {}
+    if (data.compareAtPrice && data.compareAtPrice > data.price) {
+      // Update basePrice = MRP if this compareAt is higher
+      if (data.compareAtPrice > bp) productUpdates.basePrice = data.compareAtPrice
+      // Set salePrice to selling price if not already set
+      if (!sp || data.price < sp) productUpdates.salePrice = data.price
+    }
+    if (data.costPrice !== undefined) {
+      const currentCost = product.costPrice ? Number(product.costPrice) : Infinity
+      if (data.costPrice < currentCost || currentCost === Infinity) productUpdates.costPrice = data.costPrice
+    }
 
     await db.$transaction(async (tx) => {
       // Find existing DB variants for this color
@@ -134,6 +150,14 @@ export async function PUT(
             data: { isActive: false },
           })
         }
+      }
+
+      // Update product-level pricing
+      if (Object.keys(productUpdates).length > 0) {
+        await tx.product.update({
+          where: { id: params.id },
+          data: productUpdates,
+        })
       }
     })
 

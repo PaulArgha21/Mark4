@@ -102,13 +102,18 @@ export default function EditProductPage() {
       // Load variants — group DB variants by color into color-based cards
       if (product.variants?.length) {
         const bp = Number(product.basePrice) || 0
+        const sp = product.salePrice ? Number(product.salePrice) : null
+        const cp = product.costPrice ? Number(product.costPrice) : null
+        // Effective base for selling price = salePrice (if discount) else basePrice
+        const effectiveBase = sp || bp
+
         const colorMap = new Map<string, { variants: any[], price: number, colorHex: string, weight: string, isActive: boolean }>()
         for (const v of product.variants) {
           const colorKey = v.color || 'Default'
           if (!colorMap.has(colorKey)) {
             colorMap.set(colorKey, {
               variants: [],
-              price: bp + Number(v.priceDelta || 0),
+              price: effectiveBase + Number(v.priceDelta || 0),
               colorHex: v.colorHex || '#000000',
               weight: v.weight ? String(v.weight) : '',
               isActive: v.isActive !== false,
@@ -124,8 +129,8 @@ export default function EditProductPage() {
             colorHex: data.colorHex,
             sku: skuPrefix,
             price: data.price.toString(),
-            compareAtPrice: product.salePrice ? Number(product.basePrice).toString() : '',
-            costPrice: product.costPrice ? Number(product.costPrice).toString() : '',
+            compareAtPrice: sp ? bp.toString() : '',
+            costPrice: cp ? cp.toString() : '',
             barcode: '',
             weight: data.weight,
             images: [],
@@ -222,8 +227,18 @@ export default function EditProductPage() {
     setSaving(true)
     setSaveError('')
     try {
-      const prices = variants.map(v => parseFloat(v.price)).filter(p => !isNaN(p))
-      const lowestPrice = prices.length > 0 ? Math.min(...prices) : Number(product?.basePrice) || 0
+      // ── Compute pricing from variant data ──
+      const sellingPrices = variants.map(v => parseFloat(v.price)).filter(p => !isNaN(p) && p > 0)
+      const comparePrices = variants.map(v => parseFloat(v.compareAtPrice)).filter(p => !isNaN(p) && p > 0)
+      const costPrices = variants.map(v => parseFloat(v.costPrice)).filter(p => !isNaN(p) && p > 0)
+
+      const lowestSelling = sellingPrices.length ? Math.min(...sellingPrices) : Number(product?.basePrice) || 0
+      const highestCompare = comparePrices.length ? Math.max(...comparePrices) : 0
+      const lowestCost = costPrices.length ? Math.min(...costPrices) : undefined
+
+      const hasDiscount = highestCompare > lowestSelling
+      const basePrice = hasDiscount ? highestCompare : lowestSelling
+      const salePrice = hasDiscount ? lowestSelling : undefined
 
       const payloadVariants = variants.length > 0 ? variants.flatMap((v, ci) =>
         v.sizeQuantities.map((sq, si) => ({
@@ -232,7 +247,7 @@ export default function EditProductPage() {
           size: sq.size || undefined,
           color: v.colorName || undefined,
           colorHex: v.colorHex || undefined,
-          priceDelta: (parseFloat(v.price) || 0) - lowestPrice,
+          priceDelta: (parseFloat(v.price) || 0) - lowestSelling,
           weight: v.weight ? parseFloat(v.weight) : undefined,
           sortOrder: ci * 100 + si,
           isActive: v.isActive && sq.warehouses.some(w => w.quantity > 0),
@@ -252,7 +267,9 @@ export default function EditProductPage() {
           shortDescription: basicInfo.shortDescription || undefined,
           brand: basicInfo.brand || undefined,
           categoryId: basicInfo.categoryId || undefined,
-          basePrice: lowestPrice,
+          basePrice,
+          salePrice: salePrice ?? null,
+          costPrice: lowestCost ?? null,
           isFeatured: basicInfo.isFeatured,
           isActive: basicInfo.isPublished,
           metaTitle: seoInfo.metaTitle || undefined,

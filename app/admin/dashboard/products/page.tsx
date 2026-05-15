@@ -4,7 +4,7 @@ import useSWR from 'swr'
 import Image from 'next/image'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { Plus, Search, Edit, Trash2, Eye, FileSpreadsheet, ChevronLeft, ChevronRight, Package } from 'lucide-react'
+import { Plus, Search, Edit, Trash2, Eye, FileSpreadsheet, ChevronLeft, ChevronRight, Package, Warehouse } from 'lucide-react'
 import { PortalShell } from '@/components/portal/layout/PortalShell'
 import { ClayButton } from '@/components/ui/ClayButton'
 import { formatPrice } from '@/lib/utils'
@@ -217,8 +217,11 @@ export default function ProductsManagement() {
                           <Link href={`/product/${product.slug}`} target="_blank" className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: 'var(--portal-muted)' }}>
                             <Eye size={14} />
                           </Link>
-                          <Link href={`/admin/dashboard/products/${product.id}/edit`} className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: 'var(--portal-muted)' }}>
+                          <Link href={`/admin/dashboard/products/${product.id}/edit`} className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: 'var(--portal-muted)' }} title="Edit">
                             <Edit size={14} />
+                          </Link>
+                          <Link href={`/admin/inventory/product/${product.id}`} className="p-1.5 rounded-lg hover:bg-white/5" style={{ color: 'var(--portal-muted)' }} title="Inventory">
+                            <Warehouse size={14} />
                           </Link>
                           <button onClick={() => handleDelete(product.id, product.name)} className="p-1.5 rounded-lg hover:bg-white/5 text-red-400">
                             <Trash2 size={14} />

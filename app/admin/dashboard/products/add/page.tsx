@@ -76,10 +76,22 @@ export default function AddProductPage() {
 
     setSaving(true)
     try {
-      // Compute base price from lowest variant price
-      const prices = variants.map(v => parseFloat(v.price)).filter(p => !isNaN(p))
-      const lowestPrice = Math.min(...prices)
+      // ── Compute pricing from variant data ──
+      const sellingPrices = variants.map(v => parseFloat(v.price)).filter(p => !isNaN(p) && p > 0)
+      const comparePrices = variants.map(v => parseFloat(v.compareAtPrice)).filter(p => !isNaN(p) && p > 0)
+      const costPrices = variants.map(v => parseFloat(v.costPrice)).filter(p => !isNaN(p) && p > 0)
 
+      const lowestSelling = sellingPrices.length ? Math.min(...sellingPrices) : 0
+      const highestCompare = comparePrices.length ? Math.max(...comparePrices) : 0
+      const lowestCost = costPrices.length ? Math.min(...costPrices) : undefined
+
+      // basePrice = MRP/original (compareAt if exists, else selling)
+      // salePrice = actual selling (only if there IS a compareAt discount)
+      const hasDiscount = highestCompare > lowestSelling
+      const basePrice = hasDiscount ? highestCompare : lowestSelling
+      const salePrice = hasDiscount ? lowestSelling : undefined
+
+      // priceDelta = variant selling price offset from lowest selling
       const res = await fetch('/api/portal/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -90,7 +102,9 @@ export default function AddProductPage() {
           shortDescription: basicInfo.shortDescription || undefined,
           brand: basicInfo.brand || undefined,
           categoryId: basicInfo.categoryId || undefined,
-          basePrice: lowestPrice,
+          basePrice,
+          salePrice,
+          costPrice: lowestCost,
           isFeatured: basicInfo.isFeatured,
           isActive: asDraft ? false : basicInfo.isPublished,
           metaTitle: seoInfo.metaTitle || undefined,
@@ -104,7 +118,7 @@ export default function AddProductPage() {
                 size: sq.size || undefined,
                 color: v.colorName || undefined,
                 colorHex: v.colorHex || undefined,
-                priceDelta: parseFloat(v.price) - lowestPrice,
+                priceDelta: (parseFloat(v.price) || 0) - lowestSelling,
                 weight: v.weight ? parseFloat(v.weight) : undefined,
                 sortOrder: ci * 100 + si,
                 warehouses: sq.warehouses
