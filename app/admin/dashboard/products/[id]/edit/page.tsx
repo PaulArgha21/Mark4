@@ -90,9 +90,21 @@ export default function EditProductPage() {
         isPublished: product.isActive !== false,
       })
 
+      // Load description images from DB (tagged __description__)
+      const descImages = (product.media || [])
+        .filter((m: any) => m.altText === '__description__')
+        .map((m: any, i: number) => ({
+          id: m.id,
+          url: m.url,
+          isPrimary: m.isPrimary || i === 0,
+          sortOrder: m.sortOrder ?? i,
+          uploading: false,
+        }))
+
       setDescriptionInfo(prev => ({
         ...prev,
         fullDescription: product.description || '',
+        productImages: descImages,
       }))
 
       setSeoInfo({
@@ -134,7 +146,15 @@ export default function EditProductPage() {
             costPrice: cp ? cp.toString() : '',
             barcode: '',
             weight: data.weight,
-            images: [],
+            images: (product.media || [])
+              .filter((m: any) => m.altText === '__variant__' && data.variants.some((v: any) => v.id === m.variantId))
+              .map((m: any, i: number) => ({
+                id: m.id,
+                url: m.url,
+                isPrimary: m.isPrimary || i === 0,
+                sortOrder: m.sortOrder ?? i,
+                uploading: false,
+              })),
             sizeQuantities: data.variants.map((v: any) => ({
               size: v.size || 'FREE',
               variantId: v.id,
@@ -307,31 +327,61 @@ export default function EditProductPage() {
         return
       }
 
-      // ── Sync product media: description images + variant images ──
+      // ── Sync description images (context: description) ──
       try {
         const descImages = descriptionInfo.productImages
           .filter(img => !img.uploading && img.url && !img.url.startsWith('blob:'))
-        const variantImages = variants.flatMap(v =>
-          v.images.filter(img => !img.uploading && img.url && !img.url.startsWith('blob:'))
-        )
-        const allImages = [...descImages, ...variantImages]
-        if (allImages.length > 0) {
+        const descRes = await fetch(`/api/portal/products/${productId}/media`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            context: 'description',
+            media: descImages.map((img, i) => ({
+              id: (img as any).id?.startsWith('temp-') ? undefined : (img as any).id,
+              url: img.url,
+              isPrimary: img.isPrimary || i === 0,
+              sortOrder: i,
+            })),
+          }),
+        })
+        if (descRes.ok) {
+          const { data } = await descRes.json()
+          if (data?.media) {
+            setDescriptionInfo(prev => ({
+              ...prev,
+              productImages: prev.productImages.map((img, i) => {
+                const synced = data.media[i]
+                return synced ? { ...img, id: synced.id } : img
+              }),
+            }))
+          }
+        }
+      } catch (e) { console.warn('Description media sync failed:', e) }
+
+      // ── Sync variant images (context: variant, linked by variantId) ──
+      try {
+        for (const v of variants) {
+          const variantImages = v.images.filter(img => !img.uploading && img.url && !img.url.startsWith('blob:'))
+          const variantId = v.sizeQuantities[0]?.variantId
+          if (variantImages.length === 0 || !variantId) continue
           await fetch(`/api/portal/products/${productId}/media`, {
-            method: 'POST',
+            method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({
-              media: allImages.map((img, i) => ({
+              context: 'variant',
+              variantId,
+              media: variantImages.map((img, i) => ({
+                id: (img as any).id?.startsWith('temp-') ? undefined : (img as any).id,
                 url: img.url,
-                isPrimary: i === 0,
+                isPrimary: img.isPrimary || i === 0,
                 sortOrder: i,
               })),
             }),
           })
         }
-      } catch (mediaErr) {
-        console.warn('Media sync failed (non-critical):', mediaErr)
-      }
+      } catch (e) { console.warn('Variant media sync failed:', e) }
 
       toast.success('Product saved & synced successfully')
       setLastSaved(new Date().toLocaleTimeString())

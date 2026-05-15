@@ -16,6 +16,20 @@ const mediaSchema = z.object({
   })).min(1),
 })
 
+const syncSchema = z.object({
+  // context: 'product' | 'description' | 'variant'
+  context: z.enum(['product', 'description', 'variant']).default('product'),
+  variantId: z.string().optional(),
+  media: z.array(z.object({
+    id: z.string().optional(), // existing DB id
+    url: z.string().url(),
+    altText: z.string().optional(),
+    isPrimary: z.boolean().default(false),
+    sortOrder: z.number().default(0),
+    type: z.enum(['IMAGE', 'VIDEO']).default('IMAGE'),
+  })),
+})
+
 // POST: Add media to a product
 export async function POST(
   request: Request,
@@ -135,6 +149,89 @@ export async function DELETE(
     return ok({ success: true })
   } catch (err) {
     console.error('Product media DELETE error:', err)
+    return serverError()
+  }
+}
+
+// PUT: Full upsert-based media sync for a context (product/description/variant)
+// Deletes assets removed from the list, upserts existing, creates new
+export async function PUT(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  const { error, employee } = await requirePermission(request, 'products.edit')
+  if (error) return error
+
+  try {
+    const product = await db.product.findUnique({ where: { id: params.id } })
+    if (!product) return notFound('Product not found')
+
+    const body = await request.json()
+    const parsed = syncSchema.safeParse(body)
+    if (!parsed.success) return badRequest('Invalid media sync data', parsed.error.flatten())
+
+    const { context, variantId, media } = parsed.data
+    const contextTag = `__${context}__`
+
+    // Fetch existing assets for this context
+    const whereClause: any = { productId: params.id, altText: contextTag }
+    if (context === 'variant' && variantId) {
+      whereClause.variantId = variantId
+    }
+
+    const existing = await db.mediaAsset.findMany({ where: whereClause })
+    const existingIds = new Set(existing.map(a => a.id))
+    const incomingIds = new Set(media.filter(m => m.id).map(m => m.id!))
+
+    // Delete removed assets
+    const toDelete = Array.from(existingIds).filter(id => !incomingIds.has(id))
+    if (toDelete.length > 0) {
+      await db.mediaAsset.deleteMany({ where: { id: { in: toDelete } } })
+    }
+
+    const results: string[] = []
+    for (const m of media) {
+      if (m.id && existingIds.has(m.id)) {
+        // Update existing
+        await db.mediaAsset.update({
+          where: { id: m.id },
+          data: { url: m.url, isPrimary: m.isPrimary, sortOrder: m.sortOrder, type: m.type },
+        })
+        results.push(m.id)
+      } else {
+        // Create new
+        const created = await db.mediaAsset.create({
+          data: {
+            productId: params.id,
+            variantId: context === 'variant' ? variantId : undefined,
+            url: m.url,
+            altText: contextTag,
+            type: m.type,
+            isPrimary: m.isPrimary,
+            sortOrder: m.sortOrder,
+          },
+        })
+        results.push(created.id)
+      }
+    }
+
+    logAuditEntry({
+      employeeId: employee!.id,
+      role: employee!.role,
+      action: 'product.media_synced',
+      resourceType: 'Product',
+      resourceId: params.id,
+      payload: { context: { mediaContext: context, count: media.length } },
+    })
+
+    // Return IDs so client can track them
+    const allMedia = await db.mediaAsset.findMany({
+      where: whereClause,
+      orderBy: { sortOrder: 'asc' },
+    })
+    return ok({ synced: results.length, deleted: toDelete.length, media: allMedia })
+  } catch (err) {
+    console.error('Product media PUT error:', err)
     return serverError()
   }
 }

@@ -26,7 +26,10 @@ export async function GET(
       where: { slug: params.slug, isActive: true },
       include: {
         category: { include: { parent: { select: { name: true, slug: true } } } },
-        media: { orderBy: { sortOrder: 'asc' } },
+        media: {
+          where: { altText: { not: '__description__' } },
+          orderBy: { sortOrder: 'asc' },
+        },
         variants: {
           where: { isActive: true },
           orderBy: { sortOrder: 'asc' },
@@ -122,12 +125,15 @@ export async function GET(
     const allImages = product.media.map(m => m.url)
     if (allImages.length === 0) allImages.push('/placeholder.svg')
 
+    const daysSinceCreated = (Date.now() - new Date(product.createdAt).getTime()) / (1000 * 60 * 60 * 24)
     const data = {
       id: product.id,
       slug: product.slug,
       name: product.name,
       brand: product.brand,
       description: product.description,
+      shortDescription: product.shortDescription ?? null,
+      isNew: daysSinceCreated < 14,
       images: allImages,
       basePrice: Number(product.basePrice),
       salePrice: product.salePrice ? Number(product.salePrice) : null,

@@ -1,13 +1,16 @@
 'use client'
 import useSWR from 'swr'
 import { useParams } from 'next/navigation'
-import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
 import {
   Heart, Share2, Truck, ShieldCheck, RotateCcw, Star,
   ChevronDown, Minus, Plus, ShoppingBag, Zap, Copy, Check,
+  ChevronLeft, ChevronRight, Sparkles, TrendingUp, Clock, Eye, Gift,
+  ArrowRight,
 } from 'lucide-react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { StorefrontShell } from '@/components/storefront/layout/StorefrontShell'
 import { ProductGallery } from '@/components/storefront/pdp/ProductGallery'
 import { SizeSelector } from '@/components/storefront/pdp/SizeSelector'
@@ -23,11 +26,54 @@ import { useCart } from '@/hooks/useCart'
 import { useAuth } from '@/hooks/useAuth'
 import { useWishlist } from '@/hooks/useWishlist'
 import { formatPrice } from '@/lib/utils'
-import { staggerContainer, fadeUpVariants, springs } from '@/lib/animations'
+import { staggerContainer, fadeUpVariants } from '@/lib/animations'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 
 const fetcher = (url: string) => fetch(url).then(r => r.json()).then(r => r.data)
+
+// Horizontal scrollable recommendation row
+function RecoRow({ title, icon: Icon, items, color = '#7c3aed' }: {
+  title: string
+  icon: React.ElementType
+  items: any[]
+  color?: string
+}) {
+  const rowRef = useRef<HTMLDivElement>(null)
+  const scrollBy = (dir: number) => rowRef.current?.scrollBy({ left: dir * 180, behavior: 'smooth' })
+  if (!items?.length) return null
+  return (
+    <div className="mt-12">
+      <div className="flex items-center justify-between mb-4 px-4">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: `${color}20` }}>
+            <Icon size={16} style={{ color }} />
+          </div>
+          <h2 className="font-bold text-base text-clay-text">{title}</h2>
+        </div>
+        <div className="flex gap-1">
+          <button onClick={() => scrollBy(-1)} className="w-7 h-7 rounded-full border border-clay-border flex items-center justify-center hover:bg-clay-bg-sunken transition-colors">
+            <ChevronLeft size={14} className="text-clay-text-muted" />
+          </button>
+          <button onClick={() => scrollBy(1)} className="w-7 h-7 rounded-full border border-clay-border flex items-center justify-center hover:bg-clay-bg-sunken transition-colors">
+            <ChevronRight size={14} className="text-clay-text-muted" />
+          </button>
+        </div>
+      </div>
+      <div
+        ref={rowRef}
+        className="flex gap-3 overflow-x-auto pb-3 px-4 snap-x snap-mandatory"
+        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+      >
+        {items.map((p: any) => (
+          <div key={p.id} className="flex-shrink-0 w-[160px] snap-start">
+            <ClayProductCard product={p} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export default function ProductDetailPage() {
   const { slug } = useParams<{ slug: string }>()
@@ -45,6 +91,10 @@ export default function ProductDetailPage() {
   const [wishlistLoading, setWishlistLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [openAccordion, setOpenAccordion] = useState<string | null>('details')
+  const [atcVisible, setAtcVisible] = useState(false)
+  const [recentlyViewedIds, setRecentlyViewedIds] = useState<string[]>([])
+  const lastScrollY = useRef(0)
+  const ctaRef = useRef<HTMLDivElement>(null)
 
   // Track page view
   useEffect(() => {
@@ -55,6 +105,23 @@ export default function ProductDetailPage() {
       body: JSON.stringify({ eventType: 'page_view', productId: product.id }),
     }).catch(() => {})
   }, [product?.id])
+
+  // Load recently viewed IDs for recommendations
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('aprdite-recently-viewed')
+      const list: { id: string }[] = raw ? JSON.parse(raw) : []
+      setRecentlyViewedIds(list.map(i => i.id))
+    } catch { /* ignore */ }
+  }, [])
+
+  // Fetch recommendations after product + rv IDs are ready
+  const rvParam = recentlyViewedIds.slice(0, 8).join(',')
+  const { data: recos } = useSWR(
+    product ? `/api/storefront/products/${slug}/recommendations?rv=${rvParam}` : null,
+    fetcher,
+    { revalidateOnFocus: false }
+  )
 
   // Save to recently viewed (localStorage)
   useEffect(() => {
@@ -69,6 +136,28 @@ export default function ProductDetailPage() {
       localStorage.setItem(key, JSON.stringify(filtered.slice(0, 12)))
     } catch { /* ignore */ }
   }, [product?.id])
+
+  // Scroll handler: ATC bar hides when scrolling DOWN past CTA, re-appears scrolling UP
+  useEffect(() => {
+    const handleScroll = () => {
+      const currentY = window.scrollY
+      const atcThreshold = (ctaRef.current?.getBoundingClientRect().bottom ?? 400) + currentY
+      if (currentY < atcThreshold - 200) {
+        setAtcVisible(false)
+        lastScrollY.current = currentY
+        return
+      }
+      const scrollingDown = currentY > lastScrollY.current
+      if (scrollingDown) {
+        setAtcVisible(false)
+      } else {
+        setAtcVisible(true)
+      }
+      lastScrollY.current = currentY
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
 
   // Auto-select first color
   useEffect(() => {
@@ -350,7 +439,7 @@ export default function ProductDetailPage() {
               </motion.div>
 
               {/* Quantity + CTA */}
-              <motion.div variants={fadeUpVariants} className="space-y-3 pt-1">
+              <motion.div ref={ctaRef} variants={fadeUpVariants} className="space-y-3 pt-1">
                 {/* Quantity Selector */}
                 <div className="flex items-center gap-4">
                   <span className="text-sm font-medium text-clay-text">Qty</span>
@@ -524,7 +613,73 @@ export default function ProductDetailPage() {
             </div>
           )}
 
-          {/* Reviews */}
+          {/* ── Recommendation Sections ── */}
+          <RecoRow
+            title="Top Matches for You"
+            icon={Sparkles}
+            items={recos?.topMatches}
+            color="#7c3aed"
+          />
+          <RecoRow
+            title="People Also Buy"
+            icon={TrendingUp}
+            items={recos?.peopleAlsoBuy}
+            color="#d6336c"
+          />
+          <RecoRow
+            title="Just Because You Saw This"
+            icon={Eye}
+            items={recos?.justBecauseYouSaw}
+            color="#0ea5e9"
+          />
+          <RecoRow
+            title="Your Personalised Picks"
+            icon={Gift}
+            items={recos?.personalised}
+            color="#f59e0b"
+          />
+
+          {/* Recently Viewed */}
+          {recentlyViewedIds.length > 1 && (
+            <div className="mt-12">
+              <div className="flex items-center gap-2 mb-4 px-4">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center bg-emerald-500/10">
+                  <Clock size={16} className="text-emerald-500" />
+                </div>
+                <h2 className="font-bold text-base text-clay-text">Recently Viewed</h2>
+              </div>
+              <div
+                className="flex gap-3 overflow-x-auto pb-3 px-4 snap-x snap-mandatory"
+                style={{ scrollbarWidth: 'none' }}
+              >
+                {recentlyViewedIds.filter(id => id !== product.id).slice(0, 8).map(id => {
+                  try {
+                    const raw = localStorage.getItem('aprdite-recently-viewed')
+                    const list: any[] = raw ? JSON.parse(raw) : []
+                    const item = list.find(i => i.id === id)
+                    if (!item) return null
+                    return (
+                      <Link key={id} href={`/product/${item.slug}`} className="flex-shrink-0 w-[130px] snap-start group">
+                        <div className="aspect-square rounded-xl overflow-hidden bg-clay-bg-sunken mb-2 relative">
+                          {item.image ? (
+                            <Image src={item.image} alt={item.name} fill className="object-cover group-hover:scale-105 transition-transform duration-300" sizes="130px" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <ShoppingBag size={24} className="text-clay-text-muted" />
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-xs font-medium text-clay-text truncate">{item.name}</p>
+                        <p className="text-xs font-bold text-clay-rose mt-0.5">₹{(item.salePrice ?? item.price).toLocaleString('en-IN')}</p>
+                      </Link>
+                    )
+                  } catch { return null }
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Reviews ── */}
           <div className="mt-12 md:mt-20">
             <ReviewsSection
               productId={product.id}
@@ -537,29 +692,85 @@ export default function ProductDetailPage() {
         </div>
       </motion.div>
 
-      {/* Sticky Mobile Add-to-Cart Bar */}
-      <div className="fixed bottom-[60px] left-0 right-0 z-30 md:hidden px-3 pb-[env(safe-area-inset-bottom)]">
-        <div className="glass-premium rounded-2xl p-3 flex items-center gap-3">
-          <div className="flex-1 min-w-0">
-            <p className="text-[11px] text-clay-text-muted truncate">{product.name}</p>
-            <PriceDisplay
-              price={product.basePrice + (selectedVariant?.priceDelta || 0)}
-              salePrice={product.salePrice ? product.salePrice + (selectedVariant?.priceDelta || 0) : undefined}
-              variant="inline"
-            />
-          </div>
-          <motion.button
-            className="flex-shrink-0 bg-clay-rose text-white px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-1.5 disabled:opacity-50"
-            onClick={handleAddToCart}
-            disabled={!selectedVariantId || isOutOfStock || adding}
-            whileTap={{ scale: 0.95 }}
-            style={{ boxShadow: '0 0 15px rgba(214,51,108,0.25)' }}
+      {/* ── Animated Sticky Mobile Add-to-Cart Bar ── */}
+      {/* Hides when scrolling DOWN, slides back UP when scrolling UP */}
+      <AnimatePresence>
+        {atcVisible && (
+          <motion.div
+            key="sticky-atc"
+            initial={{ y: 120, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 120, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 35, mass: 0.8 }}
+            className="fixed bottom-0 left-0 right-0 z-40 md:hidden pb-[env(safe-area-inset-bottom)]"
+            style={{ filter: 'drop-shadow(0 -8px 24px rgba(0,0,0,0.12))' }}
           >
-            <ShoppingBag size={15} />
-            {adding ? '...' : isOutOfStock ? 'Sold Out' : 'Add to Cart'}
-          </motion.button>
-        </div>
-      </div>
+            <div className="mx-3 mb-3 rounded-2xl overflow-hidden"
+              style={{
+                background: 'rgba(255,255,255,0.97)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(0,0,0,0.08)',
+                boxShadow: '0 -4px 30px rgba(0,0,0,0.10), 0 2px 0 rgba(255,255,255,0.6) inset',
+              }}
+            >
+              {/* Selection reminder if no size/color */}
+              {!selectedVariantId && (selectedColor || selectedSize) && (
+                <div className="px-4 pt-2.5 pb-0 text-[11px] font-medium text-amber-600 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  {!selectedSize ? 'Select a size to continue' : 'Select a color to continue'}
+                </div>
+              )}
+              <div className="flex items-center gap-3 p-3">
+                {/* Product thumbnail */}
+                {product.media?.[0]?.url && (
+                  <div className="w-11 h-11 rounded-xl overflow-hidden flex-shrink-0 relative">
+                    <Image src={product.media[0].url} alt={product.name} fill className="object-cover" sizes="44px" />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] text-clay-text-muted truncate leading-tight">{product.name}</p>
+                  <div className="flex items-baseline gap-1.5 mt-0.5">
+                    <span className="text-sm font-bold text-clay-text">
+                      ₹{((product.salePrice ?? product.basePrice) + (selectedVariant?.priceDelta || 0)).toLocaleString('en-IN')}
+                    </span>
+                    {product.salePrice && (
+                      <span className="text-[10px] text-clay-text-muted line-through">
+                        ₹{(product.basePrice + (selectedVariant?.priceDelta || 0)).toLocaleString('en-IN')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={handleAddToCart}
+                  disabled={!selectedVariantId || isOutOfStock || adding}
+                  className="flex-shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50 transition-opacity"
+                  style={{
+                    background: isOutOfStock
+                      ? '#9ca3af'
+                      : 'linear-gradient(135deg, #d6336c 0%, #9333ea 100%)',
+                    boxShadow: isOutOfStock ? 'none' : '0 4px 16px rgba(214,51,108,0.35)',
+                  }}
+                >
+                  {adding ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                      Adding…
+                    </span>
+                  ) : isOutOfStock ? (
+                    'Sold Out'
+                  ) : (
+                    <>
+                      <ShoppingBag size={15} />
+                      Add to Cart
+                    </>
+                  )}
+                </motion.button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </StorefrontShell>
   )
 }
