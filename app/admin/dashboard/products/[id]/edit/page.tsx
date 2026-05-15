@@ -260,31 +260,22 @@ export default function EditProductPage() {
         }))
       ) : undefined
 
-      // ── Upload description HTML to R2 if large (>2KB), store URL; else store inline ──
-      let descriptionValue = descriptionInfo.fullDescription || undefined
+      // ── Upload description HTML to R2 as backup (server-side proxy) ──
+      const descriptionValue = descriptionInfo.fullDescription || undefined
       if (descriptionValue && descriptionValue.length > 2048) {
         try {
-          const uploadRes = await fetch('/api/portal/media/upload-url', {
+          const htmlFile = new File([descriptionValue], 'description.html', { type: 'text/html' })
+          const formData = new FormData()
+          formData.append('file', htmlFile)
+          formData.append('folder', `products/${productId}/description`)
+          await fetch('/api/portal/media/upload', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ contentType: 'text/html', folder: `products/${productId}/description` }),
+            body: formData,
           })
-          if (uploadRes.ok) {
-            const { data: uploadData } = await uploadRes.json()
-            if (uploadData?.uploadUrl) {
-              const htmlBlob = new Blob([descriptionValue], { type: 'text/html' })
-              const r2Res = await fetch(uploadData.uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'text/html' }, body: htmlBlob })
-              if (r2Res.ok && uploadData.publicUrl) {
-                // Store both the R2 URL reference and raw HTML for DB
-                // DB description field stores the full HTML (for SEO, search indexing)
-                // R2 stores a backup/CDN version
-                descriptionValue = descriptionInfo.fullDescription
-              }
-            }
-          }
+          // DB description field always stores the full HTML for SEO/search indexing
         } catch (descUploadErr) {
-          console.warn('Description R2 upload failed (using inline):', descUploadErr)
+          console.warn('Description R2 backup failed (using inline):', descUploadErr)
         }
       }
 

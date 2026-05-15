@@ -28,32 +28,25 @@ export function ImageUploader({ images, onChange, maxImages = 10, folder = 'prod
 
   const uploadFile = useCallback(async (file: File): Promise<string | null> => {
     try {
-      // Get presigned URL
-      const res = await fetch('/api/portal/media/upload-url', {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('folder', folder)
+
+      const res = await fetch('/api/portal/media/upload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ contentType: file.type, folder }),
+        body: formData,
       })
+
       if (!res.ok) {
         const errData = await res.json().catch(() => null)
-        toast.error(`Upload URL failed: ${errData?.message || res.statusText}`)
-        return null
-      }
-      const { data } = await res.json()
-      if (!data?.uploadUrl) {
-        toast.error('Upload URL missing from response — check R2 config')
+        toast.error(`Upload failed: ${errData?.message || res.statusText}`)
         return null
       }
 
-      // Upload to R2
-      const uploadRes = await fetch(data.uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type },
-        body: file,
-      })
-      if (!uploadRes.ok) {
-        toast.error(`R2 upload failed: ${uploadRes.statusText}`)
+      const { data } = await res.json()
+      if (!data?.publicUrl) {
+        toast.error('Upload succeeded but no URL returned')
         return null
       }
 

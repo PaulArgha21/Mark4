@@ -15,10 +15,93 @@ const bodySchema = z.object({
   style: z.enum(['luxury', 'casual', 'minimal', 'detailed']).default('detailed'),
 })
 
-// ── Local AI Description Generator ──
-// Generates rich, unique, non-copyrighted product descriptions using
-// intelligent template composition with randomized sentence structures.
-// No external API needed — runs entirely on-server.
+// ── Google Gemini AI Description Generator ──
+// Uses Gemini 1.5 Flash (free tier) to generate enterprise-level product descriptions.
+// Falls back to local template generator if GEMINI_API_KEY is not set or API fails.
+
+async function generateWithGemini(data: z.infer<typeof bodySchema>): Promise<string | null> {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) return null
+
+  const imageSection = data.imageUrls.length > 0
+    ? `\n\nThe product has ${data.imageUrls.length} image(s). Use these URLs in the HTML:\n- Hero banner (first image): ${data.imageUrls[0]}\n${data.imageUrls.slice(1).map((url, i) => `- Gallery/detail image ${i + 2}: ${url}`).join('\n')}`
+    : ''
+
+  const prompt = `You are a world-class e-commerce product description writer and HTML/CSS designer.
+
+Generate a COMPLETE, self-contained HTML product description page for the following product. The output must be production-ready HTML that looks stunning on both mobile and desktop.
+
+**Product Details:**
+- Name: ${data.productName}
+${data.brand ? `- Brand: ${data.brand}` : ''}
+${data.fabric ? `- Fabric/Material: ${data.fabric}` : ''}
+${data.keyFeatures.length > 0 ? `- Key Features: ${data.keyFeatures.join(', ')}` : ''}
+${data.occasions.length > 0 ? `- Occasions: ${data.occasions.join(', ')}` : ''}
+${data.careInstructions.length > 0 ? `- Care Instructions: ${data.careInstructions.join(', ')}` : ''}
+- Writing Style: ${data.style}${imageSection}
+
+**STRICT Requirements:**
+1. Output ONLY raw HTML — no markdown, no code fences, no explanation
+2. Start with a <style> tag containing ALL CSS (self-contained, no external CSS imports except Google Fonts)
+3. Use Google Fonts "Inter" with weights 400,500,600,700,800
+4. Wrap everything in <article class="pd-desc">
+5. Use these CSS class prefixes: pd-hero, pd-intro, pd-gallery, pd-fabric, pd-features, pd-occasions, pd-quality, pd-care, pd-closing
+6. Include a hero banner section with the first image (full-width, rounded, max-height 480px, object-fit cover)
+7. Include an image gallery grid if multiple images exist (responsive grid, rounded corners)
+8. Include mid-section and lifestyle images between content sections
+9. Feature list should use checkmark badges (purple circles with white checkmarks)
+10. Occasion tags should be pill-shaped with gradient backgrounds
+11. Care instructions in a 2-column grid (1 column on mobile)
+12. Closing section with gradient background and CTA text
+13. ALL images must use loading="lazy" except the hero
+14. Responsive: use clamp() for font sizes, adjust padding/layout at max-width 480px
+15. Color scheme: headings #2d2d4e, body #555, accent #7c3aed, light bg #f8f7ff
+16. Max-width 760px centered, clean typography, generous whitespace
+17. Make it look like a premium Shopify product page
+18. Write compelling, original, non-copyrighted marketing copy
+19. The description should be 400-600 words of actual content
+20. Do NOT include <html>, <head>, or <body> tags — just <style> + <article>`
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.8,
+            maxOutputTokens: 4096,
+            topP: 0.95,
+          },
+        }),
+      }
+    )
+
+    if (!res.ok) {
+      console.error('Gemini API error:', res.status, await res.text().catch(() => ''))
+      return null
+    }
+
+    const json = await res.json()
+    const text = json?.candidates?.[0]?.content?.parts?.[0]?.text
+    if (!text) return null
+
+    // Clean up: remove markdown code fences if present
+    let html = text.trim()
+    if (html.startsWith('```html')) html = html.slice(7)
+    else if (html.startsWith('```')) html = html.slice(3)
+    if (html.endsWith('```')) html = html.slice(0, -3)
+    return html.trim()
+  } catch (err) {
+    console.error('Gemini API call failed:', err)
+    return null
+  }
+}
+
+// ── Fallback: Local template-based generator ──
+// Used when GEMINI_API_KEY is not set or Gemini fails
 
 function generateDescription(data: z.infer<typeof bodySchema>): string {
   const name = esc(data.productName)
@@ -248,8 +331,19 @@ export async function POST(request: Request) {
     const parsed = bodySchema.safeParse(body)
     if (!parsed.success) return badRequest('Invalid input', parsed.error.flatten())
 
-    const html = generateDescription(parsed.data)
-    return ok({ html, style: parsed.data.style })
+    // Try Gemini AI first, fall back to local template
+    let html: string | null = null
+    let engine = 'local'
+
+    html = await generateWithGemini(parsed.data)
+    if (html) {
+      engine = 'gemini'
+    } else {
+      html = generateDescription(parsed.data)
+      engine = process.env.GEMINI_API_KEY ? 'local-fallback' : 'local'
+    }
+
+    return ok({ html, style: parsed.data.style, engine })
   } catch (err) {
     console.error('AI description error:', err)
     return serverError()

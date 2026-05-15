@@ -175,16 +175,23 @@ export function VariantCard({ variant, index, productSlug, sizes, onChange, onRe
       >
         <GripVertical size={14} style={{ color: 'var(--portal-muted)', opacity: 0.5 }} className="flex-shrink-0 cursor-grab" />
 
-        {/* Color swatch */}
-        <div className="relative flex-shrink-0">
-          <span
-            className="block w-9 h-9 rounded-xl shadow-md"
+        {/* Color swatch — click to change color without expanding */}
+        <div className="relative flex-shrink-0" onClick={e => e.stopPropagation()}>
+          <label className="block w-9 h-9 rounded-xl shadow-md cursor-pointer overflow-hidden"
             style={{
               background: variant.colorHex || '#888',
               border: '2px solid rgba(255,255,255,0.1)',
               boxShadow: `0 2px 8px ${variant.colorHex || '#888'}40`,
             }}
-          />
+            title="Click to change color"
+          >
+            <input
+              type="color"
+              value={variant.colorHex || '#000000'}
+              onChange={e => set('colorHex', e.target.value)}
+              className="opacity-0 absolute w-0 h-0"
+            />
+          </label>
           {!variant.isActive && (
             <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 border-2 border-[var(--portal-surface)] flex items-center justify-center">
               <X size={7} className="text-white" />
