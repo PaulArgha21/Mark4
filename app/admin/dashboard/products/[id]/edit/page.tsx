@@ -327,6 +327,14 @@ export default function EditProductPage() {
         return
       }
 
+      // ── Purge stale/untagged orphan records first ──
+      try {
+        await fetch(`/api/portal/products/${productId}/media`, {
+          method: 'PATCH',
+          credentials: 'include',
+        })
+      } catch (e) { console.warn('Stale media purge failed:', e) }
+
       // ── Sync description images (context: description) ──
       try {
         const descImages = descriptionInfo.productImages

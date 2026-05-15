@@ -153,6 +153,42 @@ export async function DELETE(
   }
 }
 
+// PATCH: Purge stale/untagged orphan media records for this product
+// Deletes records where altText is NOT one of the context tags — these are leftover from the old POST-only upload flow
+export async function PATCH(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  const { error, employee } = await requirePermission(request, 'products.edit')
+  if (error) return error
+
+  try {
+    const CONTEXT_TAGS = ['__product__', '__description__', '__variant__']
+    const result = await db.mediaAsset.deleteMany({
+      where: {
+        productId: params.id,
+        NOT: { altText: { in: CONTEXT_TAGS } },
+      },
+    })
+
+    if (result.count > 0) {
+      logAuditEntry({
+        employeeId: employee!.id,
+        role: employee!.role,
+        action: 'product.media_stale_purged',
+        resourceType: 'Product',
+        resourceId: params.id,
+        payload: { context: { purgedCount: result.count } },
+      })
+    }
+
+    return ok({ purged: result.count })
+  } catch (err) {
+    console.error('Product media PATCH (cleanup) error:', err)
+    return serverError()
+  }
+}
+
 // PUT: Full upsert-based media sync for a context (product/description/variant)
 // Deletes assets removed from the list, upserts existing, creates new
 export async function PUT(
