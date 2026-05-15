@@ -1,7 +1,8 @@
 'use client'
 import { useState, useCallback } from 'react'
-import { Plus, X, Eye, Code, Sparkles, Copy, Check, Loader2, Smartphone, Monitor, Wand2, RotateCcw } from 'lucide-react'
+import { Plus, X, Eye, Code, Sparkles, Copy, Check, Loader2, Smartphone, Monitor, Wand2, RotateCcw, Image as ImageIcon } from 'lucide-react'
 import { SectionCard, Field } from './BasicInfoSection'
+import { ImageUploader, UploadedImage } from '@/components/portal/products/ImageUploader'
 import { toast } from 'sonner'
 
 const OCCASIONS = ['Casual', 'Formal', 'Wedding', 'Party', 'Festive', 'Office', 'Beach', 'Travel', 'Sports', 'Everyday']
@@ -18,7 +19,7 @@ export interface DescriptionValues {
   keyFeatures: string[]
   usageOccasion: string[]
   careInstructions: string[]
-  productImages: never[]
+  productImages: UploadedImage[]
 }
 
 interface DescriptionBuilderProps {
@@ -29,90 +30,12 @@ interface DescriptionBuilderProps {
   onChange: (values: DescriptionValues) => void
 }
 
-// ── Responsive preview CSS for desktop and mobile ──
+// Minimal iframe reset — generated HTML includes its own <style> block
 const PREVIEW_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
-
-  .pd-desc {
-    color: #1a1a2e; max-width: 720px; margin: 0 auto; padding: 40px 28px;
-    line-height: 1.75; font-size: 15px;
-  }
-
-  /* Hero */
-  .pd-intro { margin-bottom: 36px; }
-  .pd-intro h1 {
-    font-size: clamp(1.6rem, 4vw, 2.4rem); font-weight: 800;
-    letter-spacing: -0.03em; line-height: 1.2; margin-bottom: 16px;
-    background: linear-gradient(135deg, #1a1a2e 0%, #4a3a6b 100%);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  }
-  .pd-intro p { color: #555; font-size: 0.95rem; margin-bottom: 12px; }
-
-  /* Sections */
-  .pd-fabric, .pd-features, .pd-occasions, .pd-quality, .pd-care, .pd-closing {
-    margin-top: 32px; padding-top: 28px; border-top: 1px solid #eee;
-  }
-  .pd-fabric h2, .pd-features h2, .pd-occasions h2, .pd-quality h2, .pd-care h2, .pd-closing h2 {
-    font-size: clamp(1.1rem, 2.5vw, 1.35rem); font-weight: 700;
-    margin-bottom: 14px; color: #2d2d4e; letter-spacing: -0.01em;
-  }
-  .pd-fabric p, .pd-features p, .pd-occasions p, .pd-quality p, .pd-care p, .pd-closing p {
-    font-size: 0.92rem; color: #555; margin-bottom: 10px; line-height: 1.7;
-  }
-
-  /* Feature list */
-  .pd-feature-list {
-    list-style: none; padding: 0; margin: 16px 0;
-    display: grid; grid-template-columns: 1fr; gap: 10px;
-  }
-  .pd-feature-list li {
-    display: flex; align-items: flex-start; gap: 10px;
-    padding: 12px 16px; border-radius: 12px; background: #f8f7ff;
-    font-size: 0.88rem; color: #333; border: 1px solid #ede9fe;
-  }
-  .pd-feature-list li::before {
-    content: '\\2713'; flex-shrink: 0; width: 20px; height: 20px;
-    display: flex; align-items: center; justify-content: center;
-    border-radius: 50%; background: #7c3aed; color: white;
-    font-size: 11px; font-weight: 700; margin-top: 1px;
-  }
-  .pd-feature-list li strong { font-weight: 600; }
-
-  /* Tags */
-  .pd-tags { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
-  .pd-tag {
-    display: inline-block; padding: 6px 16px; border-radius: 99px;
-    background: linear-gradient(135deg, #f0e6ff 0%, #e8f4f8 100%);
-    color: #6b21a8; font-size: 0.78rem; font-weight: 600;
-    border: 1px solid #e2d6f5;
-  }
-
-  /* Care list */
-  .pd-care-list {
-    list-style: none; padding: 0; margin: 12px 0;
-    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-  }
-  .pd-care-list li {
-    padding: 10px 14px; border-radius: 10px; background: #fafafa;
-    font-size: 0.82rem; color: #555; border: 1px solid #eee;
-  }
-  .pd-care-list li::before { content: '\\2022 '; color: #7c3aed; font-weight: 700; }
-
-  /* Closing CTA */
-  .pd-closing { text-align: center; padding: 32px 20px; background: linear-gradient(180deg, #faf8ff 0%, #f3eeff 100%); border-radius: 16px; margin-top: 36px; border-top: none; }
-  .pd-closing h2 { color: #4a3a6b; }
-  .pd-closing p { color: #666; }
-
-  /* Mobile adjustments */
-  @media (max-width: 480px) {
-    .pd-desc { padding: 24px 16px; font-size: 14px; }
-    .pd-intro h1 { font-size: 1.5rem; }
-    .pd-fabric h2, .pd-features h2, .pd-occasions h2, .pd-quality h2, .pd-care h2, .pd-closing h2 { font-size: 1.1rem; }
-    .pd-care-list { grid-template-columns: 1fr; }
-    .pd-closing { padding: 24px 16px; }
-  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px 0; font-family: 'Inter', system-ui, sans-serif; }
+  img { max-width: 100%; height: auto; }
 `
 
 export function DescriptionBuilder({ productName, fabricType, fabricQuality, values, onChange }: DescriptionBuilderProps) {
@@ -165,6 +88,10 @@ export function DescriptionBuilder({ productName, fabricType, fabricQuality, val
 
     setGenerating(true)
     try {
+      const imageUrls = values.productImages
+        .filter(img => !img.uploading && img.url && !img.url.startsWith('blob:'))
+        .map(img => img.url)
+
       const res = await fetch('/api/portal/ai/generate-description', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -176,6 +103,7 @@ export function DescriptionBuilder({ productName, fabricType, fabricQuality, val
           keyFeatures: values.keyFeatures,
           occasions: values.usageOccasion,
           careInstructions: values.careInstructions,
+          imageUrls,
           style: aiStyle,
         }),
       })
@@ -198,7 +126,7 @@ export function DescriptionBuilder({ productName, fabricType, fabricQuality, val
     } finally {
       setGenerating(false)
     }
-  }, [productName, fabricType, fabricQuality, values.keyFeatures, values.usageOccasion, values.careInstructions, aiStyle, set])
+  }, [productName, fabricType, fabricQuality, values.keyFeatures, values.usageOccasion, values.careInstructions, values.productImages, aiStyle, set])
 
   const copyHtml = useCallback(() => {
     navigator.clipboard.writeText(values.fullDescription)
@@ -283,6 +211,25 @@ export function DescriptionBuilder({ productName, fabricType, fabricQuality, val
             )}
           </div>
         </div>
+
+        {/* Description Banner Images */}
+        <SectionCard title="Product Images (Banner & Gallery)">
+          <p className="text-[10px] mb-2" style={{ color: 'var(--portal-muted)' }}>
+            Upload high-quality product images. These will be embedded as hero banner and gallery in the AI-generated description.
+          </p>
+          <ImageUploader
+            images={values.productImages}
+            onChange={imgs => set('productImages', imgs)}
+            maxImages={10}
+            folder="products/description"
+          />
+          {values.productImages.filter(i => !i.uploading).length > 0 && (
+            <p className="text-[10px] mt-2 flex items-center gap-1" style={{ color: 'var(--portal-muted)' }}>
+              <ImageIcon size={10} />
+              {values.productImages.filter(i => !i.uploading && i.url && !i.url.startsWith('blob:')).length} image(s) ready for AI description
+            </p>
+          )}
+        </SectionCard>
 
         <SectionCard title="Key Features">
           <p className="text-[10px] mb-2" style={{ color: 'var(--portal-muted)' }}>

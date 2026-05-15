@@ -11,6 +11,7 @@ const bodySchema = z.object({
   keyFeatures: z.array(z.string()).default([]),
   occasions: z.array(z.string()).default([]),
   careInstructions: z.array(z.string()).default([]),
+  imageUrls: z.array(z.string().url()).default([]),
   style: z.enum(['luxury', 'casual', 'minimal', 'detailed']).default('detailed'),
 })
 
@@ -26,75 +27,130 @@ function generateDescription(data: z.infer<typeof bodySchema>): string {
   const features = data.keyFeatures.map(esc)
   const occasions = data.occasions.map(esc)
   const care = data.careInstructions.map(esc)
+  const images = data.imageUrls || []
   const isLuxury = data.style === 'luxury'
   const isMinimal = data.style === 'minimal'
 
-  // Randomized sentence pools for unique descriptions
+  // Pick helper for randomized content
+  const pick = <T,>(pool: T[], count: number): T[] => {
+    const shuffled = [...pool].sort(() => Math.random() - 0.5)
+    return shuffled.slice(0, Math.min(count, pool.length))
+  }
+
+  // ── Hero Banner ──
+  const heroBanner = images.length > 0
+    ? `<div class="pd-hero">
+    <img src="${images[0]}" alt="${name}" class="pd-hero__img" />
+  </div>` : ''
+
+  // ── Image Gallery ──
+  const galleryHtml = images.length > 1
+    ? `<section class="pd-gallery">
+    <div class="pd-gallery__grid">
+${images.slice(1, 5).map((url, i) => `      <img src="${url}" alt="${name} - View ${i + 2}" class="pd-gallery__item" loading="lazy" />`).join('\n')}
+    </div>
+  </section>` : ''
+
+  // ── Mid-section image ──
+  const midImage = images.length > 2
+    ? `<div class="pd-mid-image">
+    <img src="${images[Math.min(2, images.length - 1)]}" alt="${name} - Detail" loading="lazy" />
+  </div>` : ''
+
+  // ── Lifestyle image ──
+  const lifestyleImage = images.length > 3
+    ? `<div class="pd-lifestyle-img">
+    <img src="${images[3]}" alt="${name} - Lifestyle" loading="lazy" />
+  </div>` : ''
+
+  // ── Intro paragraphs ──
   const introPool = [
     `Discover the ${name} — where thoughtful design meets everyday elegance.`,
     `The ${name} is crafted for those who believe great style should never be complicated.`,
     `Introducing ${name}: a piece that effortlessly combines form, function, and flair.`,
-    `Meet your new wardrobe essential. The ${name} was designed to make an impression without trying too hard.`,
+    `Meet your new wardrobe essential. The ${name} was designed to make a lasting impression.`,
     brand ? `From the ateliers of ${brand} comes the ${name} — a testament to refined taste and modern craft.` : `Every element of the ${name} has been considered with care, resulting in a piece that truly stands apart.`,
     `There are garments you wear, and then there are garments that wear well. The ${name} belongs firmly in the latter category.`,
+    `Style meets substance in the ${name}. A design born from passion, refined through precision.`,
+    `The ${name} represents a new standard in contemporary fashion — where luxury is accessible and quality is non-negotiable.`,
   ]
 
+  // ── Fabric paragraphs ──
   const fabricPool = fabric ? [
     `Crafted from premium ${fabric}, the hand-feel is immediately noticeable — soft, substantial, and reassuringly high-quality.`,
     `The ${fabric} construction provides a natural drape and breathability that keeps you comfortable from morning to evening.`,
     `We selected ${fabric} for its balance of durability and luxury. It washes well, wears better, and ages beautifully.`,
     `The fabric story begins with ${fabric} — chosen not just for how it looks, but for how it makes you feel.`,
+    `Premium ${fabric} undergoes rigorous quality checks at every stage, ensuring only the finest reaches your wardrobe.`,
   ] : [
     `Premium materials were carefully sourced to deliver comfort without compromise.`,
     `The fabric has been selected for its exceptional hand-feel, breathability, and lasting quality.`,
     `Every thread contributes to a garment that maintains its shape, softness, and color integrity over time.`,
+    `Sourced from trusted suppliers who share our commitment to quality and ethical production practices.`,
   ]
 
-  const featureIntros = [
-    `What sets this piece apart:`,
-    `Here is what makes the ${name} special:`,
-    `Key details that define this piece:`,
-  ]
-
+  // ── Feature sentences ──
   const featureSentences = features.length > 0
     ? features.map((f, i) => {
       const templates = [
         `<strong>${f}</strong> — a detail that elevates the entire design.`,
         `<strong>${f}</strong> adds both visual interest and practical value.`,
         `The inclusion of <strong>${f}</strong> speaks to the level of thought behind every decision.`,
+        `<strong>${f}</strong> — because exceptional products deserve exceptional details.`,
       ]
       return templates[i % templates.length]
     })
     : []
 
+  // ── Occasion sentences ──
   const occasionPool = occasions.length > 0
     ? [
-      `Style it for ${occasions.join(', ').replace(/, ([^,]*)$/, ' or $1')} occasions — it adapts beautifully to every setting.`,
+      `Style it for ${occasions.join(', ').replace(/, ([^,]*)$/, ' or $1')} — it adapts beautifully to every setting.`,
       `Whether you are dressing for ${occasions[0]?.toLowerCase() || 'a special event'} or keeping things relaxed, this piece transitions with ease.`,
       `The versatility of the ${name} means it moves seamlessly between ${occasions.slice(0, 2).join(' and ').toLowerCase() || 'different'} contexts.`,
-      `Pair it with heels for ${occasions[0]?.toLowerCase() || 'evening'} drama or sneakers for effortless off-duty style.`,
+      `From ${occasions[0]?.toLowerCase() || 'formal'} occasions to everyday moments, this piece is your perfect companion.`,
     ]
     : [
       `Designed for real life: the kind of piece that works whether you are running errands or meeting friends.`,
       `Its versatile character means endless styling possibilities — dress it up, dress it down, make it yours.`,
+      `Equally at home in professional settings as it is during leisure time — a truly indispensable wardrobe staple.`,
     ]
 
+  // ── Quality sentences ──
   const qualityPool = [
     `Every seam is reinforced at stress points for longevity that matches the investment.`,
     `Color-fast dyes ensure vibrancy that lasts wash after wash — no fading, no surprises.`,
     `Hardware and finishing touches are selected for both aesthetics and durability.`,
     `The construction reflects a commitment to quality that you can see, feel, and trust.`,
+    `Each piece goes through a final quality inspection before being carefully packaged for delivery.`,
     isLuxury ? `This is the kind of piece that people notice — and remember.` : `Built to be a reliable companion in your daily wardrobe rotation.`,
   ]
 
+  // ── Closing ──
   const closingPool = [
     `Add the ${name} to your collection and feel the difference that intentional design makes.`,
     `This is more than a purchase — it is an upgrade to how you present yourself to the world.`,
     `Limited availability. When it is gone, it is gone. Make it yours today.`,
-    brand ? `Experience the ${brand} standard of quality and design with the ${name}.` : `Quality this considered does not come around often. Act now.`,
+    brand ? `Experience the ${brand} standard of quality and design with the ${name}.` : `Quality this considered does not come around often. Elevate your wardrobe now.`,
   ]
 
-  const careSection = care.length > 0
+  // Select content based on style
+  const intros = pick(introPool, isMinimal ? 2 : 4)
+  const fabrics = pick(fabricPool, isMinimal ? 1 : 3)
+  const occasionSentences = pick(occasionPool, isMinimal ? 1 : 3)
+  const quality = pick(qualityPool, isMinimal ? 2 : 4)
+  const closing = pick(closingPool, 2)
+
+  // ── Build sections ──
+  const featureHtml = featureSentences.length > 0
+    ? `<section class="pd-features">
+    <h2>What Makes It Special</h2>
+    <ul class="pd-feature-list">
+${featureSentences.map(f => `      <li>${f}</li>`).join('\n')}
+    </ul>
+  </section>` : ''
+
+  const careHtml = care.length > 0
     ? `<section class="pd-care">
     <h2>Care Guide</h2>
     <ul class="pd-care-list">
@@ -103,51 +159,74 @@ ${care.map(c => `      <li>${c}</li>`).join('\n')}
     <p>With proper care, this piece will remain a favourite for years to come.</p>
   </section>` : ''
 
-  // Select sentences based on style
-  const pick = <T,>(pool: T[], count: number): T[] => {
-    const shuffled = [...pool].sort(() => Math.random() - 0.5)
-    return shuffled.slice(0, Math.min(count, pool.length))
-  }
+  const occasionTags = occasions.length > 0
+    ? `<div class="pd-tags">${occasions.map(o => `<span class="pd-tag">${o}</span>`).join('')}</div>` : ''
 
-  const intros = pick(introPool, isMinimal ? 2 : 4)
-  const fabrics = pick(fabricPool, isMinimal ? 1 : 3)
-  const occasionSentences = pick(occasionPool, isMinimal ? 1 : 3)
-  const quality = pick(qualityPool, isMinimal ? 2 : 4)
-  const closing = pick(closingPool, 2)
+  // ── Inline CSS for self-contained rendering ──
+  const css = `<style>
+  .pd-desc{font-family:'Inter',system-ui,-apple-system,sans-serif;color:#1a1a2e;max-width:760px;margin:0 auto;padding:0;line-height:1.75;font-size:15px;-webkit-font-smoothing:antialiased}
+  .pd-hero{margin-bottom:32px;border-radius:16px;overflow:hidden}
+  .pd-hero__img{width:100%;height:auto;max-height:480px;object-fit:cover;display:block}
+  .pd-intro{margin-bottom:36px;padding:0 24px}
+  .pd-intro h1{font-size:clamp(1.6rem,4vw,2.4rem);font-weight:800;letter-spacing:-0.03em;line-height:1.2;margin:0 0 16px;background:linear-gradient(135deg,#1a1a2e 0%,#4a3a6b 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+  .pd-intro p,.pd-fabric p,.pd-features p,.pd-occasions p,.pd-quality p,.pd-care p,.pd-closing p{font-size:0.92rem;color:#555;margin:0 0 12px;line-height:1.7}
+  .pd-fabric,.pd-features,.pd-occasions,.pd-quality,.pd-care,.pd-closing{margin-top:32px;padding:28px 24px 0;border-top:1px solid #eee}
+  .pd-fabric h2,.pd-features h2,.pd-occasions h2,.pd-quality h2,.pd-care h2,.pd-closing h2{font-size:clamp(1.1rem,2.5vw,1.35rem);font-weight:700;margin:0 0 14px;color:#2d2d4e;letter-spacing:-0.01em}
+  .pd-feature-list{list-style:none;padding:0;margin:16px 0;display:grid;grid-template-columns:1fr;gap:10px}
+  .pd-feature-list li{display:flex;align-items:flex-start;gap:10px;padding:14px 18px;border-radius:12px;background:#f8f7ff;font-size:0.88rem;color:#333;border:1px solid #ede9fe}
+  .pd-feature-list li::before{content:'\\2713';flex-shrink:0;width:22px;height:22px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:#7c3aed;color:white;font-size:11px;font-weight:700}
+  .pd-feature-list li strong{font-weight:600}
+  .pd-gallery{margin:32px 0;padding:0 24px}
+  .pd-gallery__grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+  .pd-gallery__item{width:100%;height:200px;object-fit:cover;border-radius:12px;transition:transform 0.2s}
+  .pd-gallery__item:hover{transform:scale(1.02)}
+  .pd-mid-image,.pd-lifestyle-img{margin:28px 24px;border-radius:14px;overflow:hidden}
+  .pd-mid-image img,.pd-lifestyle-img img{width:100%;height:auto;max-height:360px;object-fit:cover;display:block}
+  .pd-tags{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px}
+  .pd-tag{display:inline-block;padding:6px 16px;border-radius:99px;background:linear-gradient(135deg,#f0e6ff 0%,#e8f4f8 100%);color:#6b21a8;font-size:0.78rem;font-weight:600;border:1px solid #e2d6f5}
+  .pd-care-list{list-style:none;padding:0;margin:12px 0;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .pd-care-list li{padding:10px 14px;border-radius:10px;background:#fafafa;font-size:0.82rem;color:#555;border:1px solid #eee}
+  .pd-care-list li::before{content:'\\2022 ';color:#7c3aed;font-weight:700}
+  .pd-closing{text-align:center;padding:32px 24px;background:linear-gradient(180deg,#faf8ff 0%,#f3eeff 100%);border-radius:16px;margin-top:36px;border-top:none}
+  .pd-closing h2{color:#4a3a6b}
+  .pd-closing p{color:#666}
+  @media(max-width:480px){.pd-desc{font-size:14px}.pd-intro{padding:0 16px}.pd-intro h1{font-size:1.5rem}.pd-fabric,.pd-features,.pd-occasions,.pd-quality,.pd-care,.pd-closing{padding:24px 16px 0}.pd-gallery{padding:0 16px}.pd-gallery__grid{grid-template-columns:1fr 1fr}.pd-gallery__item{height:140px}.pd-mid-image,.pd-lifestyle-img{margin:20px 16px}.pd-care-list{grid-template-columns:1fr}.pd-closing{padding:24px 16px}.pd-hero__img{max-height:280px}}
+</style>`
 
-  const featureHtml = featureSentences.length > 0
-    ? `<section class="pd-features">
-    <h2>${pick(featureIntros, 1)[0]}</h2>
-    <ul class="pd-feature-list">
-${featureSentences.map(f => `      <li>${f}</li>`).join('\n')}
-    </ul>
-  </section>` : ''
+  return `${css}
+<article class="pd-desc">
+  ${heroBanner}
 
-  return `<article class="pd-desc">
   <section class="pd-intro">
     <h1>${name}</h1>
 ${intros.map(s => `    <p>${s}</p>`).join('\n')}
   </section>
+
+  ${galleryHtml}
 
   <section class="pd-fabric">
     <h2>Material &amp; Craft</h2>
 ${fabrics.map(s => `    <p>${s}</p>`).join('\n')}
   </section>
 
+  ${midImage}
+
   ${featureHtml}
 
   <section class="pd-occasions">
     <h2>Wear It Your Way</h2>
 ${occasionSentences.map(s => `    <p>${s}</p>`).join('\n')}
-    ${occasions.length > 0 ? `<div class="pd-tags">${occasions.map(o => `<span class="pd-tag">${o}</span>`).join(' ')}</div>` : ''}
+    ${occasionTags}
   </section>
+
+  ${lifestyleImage}
 
   <section class="pd-quality">
     <h2>Built to Last</h2>
 ${quality.map(s => `    <p>${s}</p>`).join('\n')}
   </section>
 
-  ${careSection}
+  ${careHtml}
 
   <section class="pd-closing">
     <h2>Make It Yours</h2>

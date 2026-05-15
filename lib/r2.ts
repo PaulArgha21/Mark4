@@ -11,7 +11,7 @@ const s3 = new S3Client({
   },
 })
 
-export type MediaType = 'image' | 'video' | 'document'
+export type MediaType = 'image' | 'video' | 'document' | 'text'
 
 export interface UploadUrlResult {
   uploadUrl: string

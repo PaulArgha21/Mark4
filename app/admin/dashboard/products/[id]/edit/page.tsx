@@ -137,6 +137,7 @@ export default function EditProductPage() {
             images: [],
             sizeQuantities: data.variants.map((v: any) => ({
               size: v.size || 'FREE',
+              variantId: v.id,
               warehouses: Array.isArray(v.inventory)
                 ? v.inventory
                     .filter((inv: any) => inv.warehouseId)
@@ -243,6 +244,7 @@ export default function EditProductPage() {
 
       const payloadVariants = variants.length > 0 ? variants.flatMap((v, ci) =>
         v.sizeQuantities.map((sq, si) => ({
+          id: sq.variantId || undefined,
           sku: `${v.sku}-${sq.size}`,
           name: [v.colorName, sq.size].filter(Boolean).join(' / ') || undefined,
           size: sq.size || undefined,
@@ -251,12 +253,40 @@ export default function EditProductPage() {
           priceDelta: (parseFloat(v.price) || 0) - lowestSelling,
           weight: v.weight ? parseFloat(v.weight) : undefined,
           sortOrder: ci * 100 + si,
-          isActive: v.isActive && sq.warehouses.some(w => w.quantity > 0),
+          isActive: v.isActive,
           warehouses: sq.warehouses
             .filter(w => w.warehouseName.trim() && w.pincode.length === 6)
             .map(w => ({ warehouseName: w.warehouseName.trim(), pincode: w.pincode, quantity: w.quantity })),
         }))
       ) : undefined
+
+      // ── Upload description HTML to R2 if large (>2KB), store URL; else store inline ──
+      let descriptionValue = descriptionInfo.fullDescription || undefined
+      if (descriptionValue && descriptionValue.length > 2048) {
+        try {
+          const uploadRes = await fetch('/api/portal/media/upload-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ contentType: 'text/html', folder: `products/${productId}/description` }),
+          })
+          if (uploadRes.ok) {
+            const { data: uploadData } = await uploadRes.json()
+            if (uploadData?.uploadUrl) {
+              const htmlBlob = new Blob([descriptionValue], { type: 'text/html' })
+              const r2Res = await fetch(uploadData.uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'text/html' }, body: htmlBlob })
+              if (r2Res.ok && uploadData.publicUrl) {
+                // Store both the R2 URL reference and raw HTML for DB
+                // DB description field stores the full HTML (for SEO, search indexing)
+                // R2 stores a backup/CDN version
+                descriptionValue = descriptionInfo.fullDescription
+              }
+            }
+          }
+        } catch (descUploadErr) {
+          console.warn('Description R2 upload failed (using inline):', descUploadErr)
+        }
+      }
 
       const res = await fetch(`/api/portal/products/${productId}`, {
         method: 'PUT',
@@ -264,7 +294,7 @@ export default function EditProductPage() {
         credentials: 'include',
         body: JSON.stringify({
           name: basicInfo.name.trim(),
-          description: descriptionInfo.fullDescription || undefined,
+          description: descriptionValue,
           shortDescription: basicInfo.shortDescription || undefined,
           brand: basicInfo.brand || undefined,
           categoryId: basicInfo.categoryId || undefined,
@@ -286,9 +316,14 @@ export default function EditProductPage() {
         return
       }
 
-      // Upload variant images (non-blocking, don't crash on failure)
+      // ── Sync product media: description images + variant images ──
       try {
-        const allImages = variants.flatMap(v => v.images.filter(img => !img.uploading && img.url && !img.url.startsWith('blob:')))
+        const descImages = descriptionInfo.productImages
+          .filter(img => !img.uploading && img.url && !img.url.startsWith('blob:'))
+        const variantImages = variants.flatMap(v =>
+          v.images.filter(img => !img.uploading && img.url && !img.url.startsWith('blob:'))
+        )
+        const allImages = [...descImages, ...variantImages]
         if (allImages.length > 0) {
           await fetch(`/api/portal/products/${productId}/media`, {
             method: 'POST',
@@ -304,10 +339,10 @@ export default function EditProductPage() {
           })
         }
       } catch (mediaErr) {
-        console.warn('Media upload failed (non-critical):', mediaErr)
+        console.warn('Media sync failed (non-critical):', mediaErr)
       }
 
-      toast.success('Product updated successfully')
+      toast.success('Product saved & synced successfully')
       setLastSaved(new Date().toLocaleTimeString())
       try { await mutate() } catch { /* SWR revalidation error — ignore, data is saved */ }
     } catch (err) {

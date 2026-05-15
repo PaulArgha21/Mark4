@@ -6,7 +6,7 @@ import { ok, badRequest, serverError } from '@/lib/api-response'
 import { z } from 'zod'
 
 const bodySchema = z.object({
-  contentType: z.string().regex(/^(image|video)\//),
+  contentType: z.string().regex(/^(image|video|text)\//),
   folder: z.string().default('media'),
 })
 
@@ -19,8 +19,11 @@ export async function POST(request: Request) {
     const parsed = bodySchema.safeParse(body)
     if (!parsed.success) return badRequest('Invalid body', parsed.error.flatten())
 
+    const typeMap = parsed.data.contentType.startsWith('image') ? 'image' as const
+      : parsed.data.contentType.startsWith('video') ? 'video' as const
+      : 'document' as const
     const result = await getR2UploadUrl(
-      parsed.data.contentType.startsWith('image') ? 'image' : 'video',
+      typeMap,
       parsed.data.contentType,
       parsed.data.folder
     )

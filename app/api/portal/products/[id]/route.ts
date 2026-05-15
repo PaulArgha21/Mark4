@@ -125,14 +125,19 @@ export async function PUT(
 
       // Upsert variants if provided
       if (variantData && variantData.length > 0) {
+        const incomingSkus = variantData.map(v => v.sku)
         const incomingIds = variantData.filter(v => v.id).map(v => v.id!)
 
-        // Deactivate variants that are no longer in the list
+        // Deactivate variants that are no longer in the list (by id or sku)
         const existingIds = existing.variants.map(v => v.id)
         const removedIds = existingIds.filter(id => !incomingIds.includes(id))
-        if (removedIds.length > 0) {
+        const keptBySkuIds = existing.variants
+          .filter(v => incomingSkus.includes(v.sku))
+          .map(v => v.id)
+        const toDeactivate = removedIds.filter(id => !keptBySkuIds.includes(id))
+        if (toDeactivate.length > 0) {
           await tx.productVariant.updateMany({
-            where: { id: { in: removedIds } },
+            where: { id: { in: toDeactivate } },
             data: { isActive: false },
           })
         }
@@ -142,7 +147,7 @@ export async function PUT(
           let variantId: string
 
           if (v.id && existingIds.includes(v.id)) {
-            // Update existing variant
+            // Update existing variant by ID
             await tx.productVariant.update({
               where: { id: v.id },
               data: {
@@ -159,22 +164,43 @@ export async function PUT(
             })
             variantId = v.id
           } else {
-            // Create new variant
-            const variant = await tx.productVariant.create({
-              data: {
-                productId: params.id,
-                sku: v.sku,
-                name: v.name,
-                size: v.size,
-                color: v.color,
-                colorHex: v.colorHex,
-                priceDelta: v.priceDelta,
-                weight: v.weight,
-                sortOrder: v.sortOrder,
-                isActive: v.isActive,
-              },
+            // Try to find by SKU first (avoid unique constraint crash)
+            const existingBySku = await tx.productVariant.findFirst({
+              where: { productId: params.id, sku: v.sku },
             })
-            variantId = variant.id
+            if (existingBySku) {
+              await tx.productVariant.update({
+                where: { id: existingBySku.id },
+                data: {
+                  name: v.name,
+                  size: v.size,
+                  color: v.color,
+                  colorHex: v.colorHex,
+                  priceDelta: v.priceDelta,
+                  weight: v.weight,
+                  sortOrder: v.sortOrder,
+                  isActive: v.isActive,
+                },
+              })
+              variantId = existingBySku.id
+            } else {
+              // Create new variant
+              const variant = await tx.productVariant.create({
+                data: {
+                  productId: params.id,
+                  sku: v.sku,
+                  name: v.name,
+                  size: v.size,
+                  color: v.color,
+                  colorHex: v.colorHex,
+                  priceDelta: v.priceDelta,
+                  weight: v.weight,
+                  sortOrder: v.sortOrder,
+                  isActive: v.isActive,
+                },
+              })
+              variantId = variant.id
+            }
           }
 
           // Sync multi-warehouse inventory: delete old rows, create fresh ones
@@ -193,11 +219,6 @@ export async function PUT(
                 })
               }
             }
-          } else {
-            // Fallback: create a default zero-stock row
-            await tx.inventory.create({
-              data: { variantId, quantity: 0, warehouseId: null },
-            })
           }
         }
       }

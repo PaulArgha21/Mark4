@@ -16,6 +16,7 @@ export interface WarehouseEntry {
 
 export interface SizeQuantity {
   size: string
+  variantId?: string
   warehouses: WarehouseEntry[]
 }
 
