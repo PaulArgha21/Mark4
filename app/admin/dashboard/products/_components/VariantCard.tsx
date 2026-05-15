@@ -268,42 +268,81 @@ export function VariantCard({ variant, index, productSlug, sizes, onChange, onRe
             <MetricBadge icon={IndianRupee} label="Profit" value={profit !== null ? `₹${profit}` : '—'} color={profit && Number(profit) > 0 ? '#a78bfa' : 'var(--portal-muted)'} />
           </div>
 
-          {/* ── Config bar: SKU + Active ── */}
-          <div className="px-5 py-3 flex flex-col sm:flex-row items-start sm:items-end gap-3" style={{ borderBottom: '1px solid var(--portal-border)' }}>
-            <div className="flex-1 min-w-0 w-full sm:w-auto">
-              <InputField label="SKU Prefix" required>
-                <div className="flex gap-2">
+          {/* ── Config bar: Color + SKU + Active ── */}
+          <div className="px-5 py-3 space-y-3" style={{ borderBottom: '1px solid var(--portal-border)' }}>
+            {/* Color customization row */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3">
+              <div className="flex-1 min-w-0 w-full sm:w-auto">
+                <InputField label="Color Name" required>
                   <input
-                    value={variant.sku}
-                    onChange={e => set('sku', e.target.value)}
-                    placeholder={autoSkuPrefix}
-                    className="portal-input flex-1 font-mono text-sm"
+                    value={variant.colorName}
+                    onChange={e => set('colorName', e.target.value)}
+                    placeholder="e.g. Midnight Blue"
+                    className="portal-input text-sm"
                     style={{ background: 'var(--portal-elevated)' }}
                   />
-                  <button
-                    type="button"
-                    onClick={() => set('sku', autoSkuPrefix)}
-                    className="px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all hover:opacity-80"
-                    style={{ background: 'var(--portal-accent)', color: '#fff' }}
-                  >
-                    Auto
-                  </button>
-                </div>
-              </InputField>
+                </InputField>
+              </div>
+              <div className="w-full sm:w-48">
+                <InputField label="Color Hex">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={variant.colorHex || '#000000'}
+                      onChange={e => set('colorHex', e.target.value)}
+                      className="w-9 h-9 rounded-lg cursor-pointer border-0 p-0.5"
+                      style={{ background: 'var(--portal-elevated)' }}
+                    />
+                    <input
+                      value={variant.colorHex || ''}
+                      onChange={e => set('colorHex', e.target.value)}
+                      placeholder="#000000"
+                      className="portal-input flex-1 font-mono text-sm uppercase"
+                      style={{ background: 'var(--portal-elevated)' }}
+                      maxLength={7}
+                    />
+                  </div>
+                </InputField>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={() => set('isActive', !variant.isActive)}
-              className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0"
-              style={{
-                background: variant.isActive ? 'rgba(74,222,128,0.1)' : 'rgba(248,113,113,0.1)',
-                color: variant.isActive ? '#4ade80' : '#f87171',
-                border: `1px solid ${variant.isActive ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)'}`,
-              }}
-            >
-              {variant.isActive ? <Eye size={13} /> : <EyeOff size={13} />}
-              {variant.isActive ? 'Active' : 'Inactive'}
-            </button>
+
+            {/* SKU + Active row */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3">
+              <div className="flex-1 min-w-0 w-full sm:w-auto">
+                <InputField label="SKU Prefix" required>
+                  <div className="flex gap-2">
+                    <input
+                      value={variant.sku}
+                      onChange={e => set('sku', e.target.value)}
+                      placeholder={autoSkuPrefix}
+                      className="portal-input flex-1 font-mono text-sm"
+                      style={{ background: 'var(--portal-elevated)' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => set('sku', autoSkuPrefix)}
+                      className="px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all hover:opacity-80"
+                      style={{ background: 'var(--portal-accent)', color: '#fff' }}
+                    >
+                      Auto
+                    </button>
+                  </div>
+                </InputField>
+              </div>
+              <button
+                type="button"
+                onClick={() => set('isActive', !variant.isActive)}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0"
+                style={{
+                  background: variant.isActive ? 'rgba(74,222,128,0.1)' : 'rgba(248,113,113,0.1)',
+                  color: variant.isActive ? '#4ade80' : '#f87171',
+                  border: `1px solid ${variant.isActive ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)'}`,
+                }}
+              >
+                {variant.isActive ? <Eye size={13} /> : <EyeOff size={13} />}
+                {variant.isActive ? 'Active' : 'Inactive'}
+              </button>
+            </div>
           </div>
 
           {/* ── Tabs: Inventory / Pricing / Images ── */}

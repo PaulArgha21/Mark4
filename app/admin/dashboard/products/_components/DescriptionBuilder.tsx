@@ -1,19 +1,24 @@
 'use client'
-import { useState, useCallback, useMemo } from 'react'
-import { Plus, X, Eye, Code, Sparkles, Copy, Check, Image as ImageIcon } from 'lucide-react'
+import { useState, useCallback } from 'react'
+import { Plus, X, Eye, Code, Sparkles, Copy, Check, Loader2, Smartphone, Monitor, Wand2, RotateCcw } from 'lucide-react'
 import { SectionCard, Field } from './BasicInfoSection'
-import { UploadedImage } from '@/components/portal/products/ImageUploader'
-import { ImageUploader } from '@/components/portal/products/ImageUploader'
+import { toast } from 'sonner'
 
 const OCCASIONS = ['Casual', 'Formal', 'Wedding', 'Party', 'Festive', 'Office', 'Beach', 'Travel', 'Sports', 'Everyday']
 const CARE_PRESETS = ['Machine wash cold', 'Hand wash only', 'Dry clean only', 'Do not bleach', 'Iron low heat', 'Do not iron', 'Tumble dry low', 'Hang dry', 'Do not wring', 'Wash inside out']
+const STYLE_OPTIONS = [
+  { value: 'luxury' as const, label: 'Luxury', desc: 'Premium, aspirational tone' },
+  { value: 'casual' as const, label: 'Casual', desc: 'Friendly, approachable voice' },
+  { value: 'minimal' as const, label: 'Minimal', desc: 'Clean, concise copy' },
+  { value: 'detailed' as const, label: 'Detailed', desc: 'Rich, comprehensive' },
+]
 
 export interface DescriptionValues {
   fullDescription: string
   keyFeatures: string[]
   usageOccasion: string[]
   careInstructions: string[]
-  productImages: UploadedImage[]
+  productImages: never[]
 }
 
 interface DescriptionBuilderProps {
@@ -24,11 +29,100 @@ interface DescriptionBuilderProps {
   onChange: (values: DescriptionValues) => void
 }
 
+// ── Responsive preview CSS for desktop and mobile ──
+const PREVIEW_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+
+  .pd-desc {
+    color: #1a1a2e; max-width: 720px; margin: 0 auto; padding: 40px 28px;
+    line-height: 1.75; font-size: 15px;
+  }
+
+  /* Hero */
+  .pd-intro { margin-bottom: 36px; }
+  .pd-intro h1 {
+    font-size: clamp(1.6rem, 4vw, 2.4rem); font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.2; margin-bottom: 16px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #4a3a6b 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .pd-intro p { color: #555; font-size: 0.95rem; margin-bottom: 12px; }
+
+  /* Sections */
+  .pd-fabric, .pd-features, .pd-occasions, .pd-quality, .pd-care, .pd-closing {
+    margin-top: 32px; padding-top: 28px; border-top: 1px solid #eee;
+  }
+  .pd-fabric h2, .pd-features h2, .pd-occasions h2, .pd-quality h2, .pd-care h2, .pd-closing h2 {
+    font-size: clamp(1.1rem, 2.5vw, 1.35rem); font-weight: 700;
+    margin-bottom: 14px; color: #2d2d4e; letter-spacing: -0.01em;
+  }
+  .pd-fabric p, .pd-features p, .pd-occasions p, .pd-quality p, .pd-care p, .pd-closing p {
+    font-size: 0.92rem; color: #555; margin-bottom: 10px; line-height: 1.7;
+  }
+
+  /* Feature list */
+  .pd-feature-list {
+    list-style: none; padding: 0; margin: 16px 0;
+    display: grid; grid-template-columns: 1fr; gap: 10px;
+  }
+  .pd-feature-list li {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 12px 16px; border-radius: 12px; background: #f8f7ff;
+    font-size: 0.88rem; color: #333; border: 1px solid #ede9fe;
+  }
+  .pd-feature-list li::before {
+    content: '\\2713'; flex-shrink: 0; width: 20px; height: 20px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%; background: #7c3aed; color: white;
+    font-size: 11px; font-weight: 700; margin-top: 1px;
+  }
+  .pd-feature-list li strong { font-weight: 600; }
+
+  /* Tags */
+  .pd-tags { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .pd-tag {
+    display: inline-block; padding: 6px 16px; border-radius: 99px;
+    background: linear-gradient(135deg, #f0e6ff 0%, #e8f4f8 100%);
+    color: #6b21a8; font-size: 0.78rem; font-weight: 600;
+    border: 1px solid #e2d6f5;
+  }
+
+  /* Care list */
+  .pd-care-list {
+    list-style: none; padding: 0; margin: 12px 0;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  }
+  .pd-care-list li {
+    padding: 10px 14px; border-radius: 10px; background: #fafafa;
+    font-size: 0.82rem; color: #555; border: 1px solid #eee;
+  }
+  .pd-care-list li::before { content: '\\2022 '; color: #7c3aed; font-weight: 700; }
+
+  /* Closing CTA */
+  .pd-closing { text-align: center; padding: 32px 20px; background: linear-gradient(180deg, #faf8ff 0%, #f3eeff 100%); border-radius: 16px; margin-top: 36px; border-top: none; }
+  .pd-closing h2 { color: #4a3a6b; }
+  .pd-closing p { color: #666; }
+
+  /* Mobile adjustments */
+  @media (max-width: 480px) {
+    .pd-desc { padding: 24px 16px; font-size: 14px; }
+    .pd-intro h1 { font-size: 1.5rem; }
+    .pd-fabric h2, .pd-features h2, .pd-occasions h2, .pd-quality h2, .pd-care h2, .pd-closing h2 { font-size: 1.1rem; }
+    .pd-care-list { grid-template-columns: 1fr; }
+    .pd-closing { padding: 24px 16px; }
+  }
+`
+
 export function DescriptionBuilder({ productName, fabricType, fabricQuality, values, onChange }: DescriptionBuilderProps) {
   const [featureInput, setFeatureInput] = useState('')
   const [careInput, setCareInput] = useState('')
-  const [showPreview, setShowPreview] = useState(true)
+  const [viewMode, setViewMode] = useState<'preview' | 'html'>('preview')
+  const [deviceMode, setDeviceMode] = useState<'desktop' | 'mobile'>('desktop')
   const [copied, setCopied] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [aiStyle, setAiStyle] = useState<'luxury' | 'casual' | 'minimal' | 'detailed'>('detailed')
 
   const set = useCallback(<K extends keyof DescriptionValues>(key: K, val: DescriptionValues[K]) => {
     onChange({ ...values, [key]: val })
@@ -62,232 +156,138 @@ export function DescriptionBuilder({ productName, fabricType, fabricQuality, val
     }
   }, [values.careInstructions, set])
 
-  // ── Generate 50-sentence blog-style HTML with product images ──
-  const generatedHtml = useMemo(() => {
-    const name = productName || 'Your Product'
-    const fabric = [fabricType, fabricQuality].filter(Boolean).join(' — ')
-    const features = values.keyFeatures
-    const occasions = values.usageOccasion
-    const care = values.careInstructions
-    const images = values.productImages.filter(img => !img.uploading && img.url)
+  // ── AI Description Generation ──
+  const generateAiDescription = useCallback(async () => {
+    if (!productName.trim()) {
+      toast.error('Enter a product name first')
+      return
+    }
 
-    // Build image gallery HTML
-    const galleryHtml = images.length > 0
-      ? `<section class="pd-gallery">
-    <div class="pd-gallery__grid">
-${images.map((img, i) => `      <img src="${esc(img.url)}" alt="${esc(name)} - Image ${i + 1}" class="pd-gallery__img" />`).join('\n')}
-    </div>
-  </section>`
-      : ''
+    setGenerating(true)
+    try {
+      const res = await fetch('/api/portal/ai/generate-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          productName: productName.trim(),
+          brand: '',
+          fabric: [fabricType, fabricQuality].filter(Boolean).join(' '),
+          keyFeatures: values.keyFeatures,
+          occasions: values.usageOccasion,
+          careInstructions: values.careInstructions,
+          style: aiStyle,
+        }),
+      })
 
-    // Build featured image for hero
-    const heroImg = images.length > 0
-      ? `<div class="pd-hero__img"><img src="${esc(images[0].url)}" alt="${esc(name)}" /></div>`
-      : ''
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        toast.error(data?.message || 'Failed to generate description')
+        return
+      }
 
-    // Mid-section images
-    const midImg = images.length > 1
-      ? `<div class="pd-mid-img"><img src="${esc(images[1].url)}" alt="${esc(name)} detail" /></div>`
-      : ''
-
-    const endImg = images.length > 2
-      ? `<div class="pd-end-img"><img src="${esc(images[2].url)}" alt="${esc(name)} lifestyle" /></div>`
-      : ''
-
-    // Generate rich prose paragraphs (50+ sentences)
-    const introSentences = [
-      `Introducing the ${esc(name)} — a masterpiece of design and craftsmanship that redefines what it means to dress with intention.`,
-      `Every detail has been thoughtfully considered, from the initial sketch to the final stitch, creating a piece that speaks volumes about your taste.`,
-      `This is not just another addition to your wardrobe; it is a statement of individuality, confidence, and refined aesthetics.`,
-      fabric ? `Crafted from premium ${esc(fabric)}, this piece offers an unmatched combination of comfort and durability that you will feel from the very first wear.` : `Crafted from premium materials carefully selected for their quality, this piece delivers exceptional comfort and lasting durability.`,
-      `The attention to detail is evident in every seam, every fold, and every carefully placed element that makes this product truly exceptional.`,
-      `We believe that great fashion should feel as good as it looks, and this piece delivers on that promise in every possible way.`,
-    ]
-
-    const storySentences = [
-      `Born from a vision of timeless elegance meets modern sensibility, this design bridges the gap between classic sophistication and contemporary style.`,
-      `Our design team spent countless hours perfecting the silhouette, ensuring that it flatters every body type while maintaining its distinctive character.`,
-      `The color palette was chosen to complement a wide range of existing wardrobe pieces, making it incredibly versatile for any occasion.`,
-      `Whether you are stepping out for a casual brunch or preparing for an important evening event, this piece adapts effortlessly to your needs.`,
-      `The construction technique used ensures longevity — this is a piece built to withstand the test of time and maintain its beauty wash after wash.`,
-      `We sourced the finest materials from trusted suppliers who share our commitment to quality and ethical production practices.`,
-      fabric ? `The ${esc(fabricType || 'fabric')} undergoes rigorous quality checks at every stage of production to ensure only the best reaches your hands.` : `Every material undergoes rigorous quality checks at every stage of production to ensure only the best reaches your hands.`,
-      `The weight and drape of the fabric create a natural flow that moves beautifully with your body, offering both comfort and style in equal measure.`,
-    ]
-
-    const featureSentences = features.length > 0
-      ? features.map(f => `One of the standout qualities is the ${esc(f)}, which sets this piece apart from anything else in the market.`)
-      : [
-        `The unique design elements create a distinctive silhouette that catches the eye without being overwhelming.`,
-        `Thoughtful construction details ensure comfort throughout the day, no matter how long you wear it.`,
-        `The versatile design allows you to dress it up with accessories or keep it minimal for a clean, understated look.`,
-      ]
-
-    const occasionSentences = occasions.length > 0
-      ? [
-        `This piece is perfectly suited for ${occasions.map(o => esc(o).toLowerCase()).join(', ')} occasions, making it a truly versatile investment.`,
-        `Imagine wearing this to your next ${esc(occasions[0]?.toLowerCase() || 'special')} gathering and receiving compliments from everyone in the room.`,
-        `The design versatility means you can transition seamlessly from ${occasions.length > 1 ? esc(occasions[0]?.toLowerCase() || 'day') + ' to ' + esc(occasions[1]?.toLowerCase() || 'evening') : 'day to evening'} without missing a beat.`,
-        `Style it differently for each occasion — it transforms beautifully whether you are going for relaxed or refined.`,
-      ]
-      : [
-        `Designed for the modern individual who refuses to compromise between style and practicality.`,
-        `Equally at home in professional settings as it is during leisure time, making it an indispensable wardrobe staple.`,
-        `The kind of piece that makes getting dressed in the morning effortless — you already know it will look amazing.`,
-        `Perfect for those who appreciate quality craftsmanship and want their clothing to reflect their standards.`,
-      ]
-
-    const qualitySentences = [
-      `Quality is not just a word we use — it is embedded in every fiber of this product.`,
-      `The stitching is reinforced at all stress points, ensuring that the garment maintains its shape and structure over extended use.`,
-      `Color fastness has been tested rigorously — the vibrant hues will remain true even after multiple washes.`,
-      `The finishing touches, including the trims and closures, are selected for both functionality and aesthetic harmony.`,
-      `We stand behind our products with confidence, knowing that the craftsmanship speaks for itself.`,
-      `Each piece goes through a final quality inspection before being packaged and shipped to ensure it meets our exacting standards.`,
-    ]
-
-    const lifestyleSentences = [
-      `Owning this piece means owning a part of a larger story — one of craftsmanship, passion, and dedication to excellence.`,
-      `It is the kind of addition that elevates not just your outfit but your entire presence in any room you walk into.`,
-      `Pair it with your favorite accessories to create looks that range from effortlessly casual to impeccably polished.`,
-      `The silhouette has been designed to photograph beautifully, whether for social media or cherished memories.`,
-      `Invest in pieces that make you feel extraordinary — because you deserve nothing less than exceptional.`,
-      `This is fashion designed with purpose, intention, and an unwavering commitment to making you look and feel your best.`,
-    ]
-
-    const closingSentences = [
-      `Add this to your collection today and experience the difference that true quality makes.`,
-      `Join thousands of satisfied customers who have made this one of our most celebrated pieces.`,
-      `Limited quantities available — once you experience the quality, you will understand why.`,
-      `Your wardrobe deserves this upgrade. You deserve this level of quality and craftsmanship.`,
-      `Order now and discover what thoughtful design and premium craftsmanship truly feel like.`,
-    ]
-
-    const careSentences = care.length > 0
-      ? [
-        `To maintain the exceptional quality of your ${esc(name)}, we recommend the following care instructions:`,
-        ...care.map(c => `${esc(c)}.`),
-        `Following these simple guidelines will ensure your piece remains beautiful for years to come.`,
-        `Proper care extends the life of your garment significantly, preserving both the fabric integrity and vibrant appearance.`,
-      ]
-      : []
-
-    return `<article class="pd-desc">
-  <header class="pd-hero">
-    ${heroImg}
-    <div class="pd-hero__content">
-      <h1>${esc(name)}</h1>
-      ${fabric ? `<p class="pd-tagline">${esc(fabric)}</p>` : ''}
-    </div>
-  </header>
-
-  <section class="pd-intro">
-    <h2>A New Standard of Excellence</h2>
-${introSentences.map(s => `    <p>${s}</p>`).join('\n')}
-  </section>
-
-  ${galleryHtml}
-
-  <section class="pd-story">
-    <h2>The Story Behind the Design</h2>
-${storySentences.map(s => `    <p>${s}</p>`).join('\n')}
-  </section>
-
-  ${midImg}
-
-  <section class="pd-features">
-    <h2>What Makes It Special</h2>
-${featureSentences.map(s => `    <p>${s}</p>`).join('\n')}
-    ${features.length > 0 ? `<ul class="pd-feature-list">
-${features.map(f => `      <li><strong>${esc(f)}</strong></li>`).join('\n')}
-    </ul>` : ''}
-  </section>
-
-  <section class="pd-occasions">
-    <h2>Perfect For Every Moment</h2>
-${occasionSentences.map(s => `    <p>${s}</p>`).join('\n')}
-    ${occasions.length > 0 ? `<div class="pd-tags">${occasions.map(o => `<span class="pd-tag">${esc(o)}</span>`).join(' ')}</div>` : ''}
-  </section>
-
-  ${endImg}
-
-  <section class="pd-quality">
-    <h2>Uncompromising Quality</h2>
-${qualitySentences.map(s => `    <p>${s}</p>`).join('\n')}
-  </section>
-
-  <section class="pd-lifestyle">
-    <h2>Elevate Your Style</h2>
-${lifestyleSentences.map(s => `    <p>${s}</p>`).join('\n')}
-  </section>
-
-  ${careSentences.length > 0 ? `<section class="pd-care">
-    <h2>Care Instructions</h2>
-${careSentences.map(s => `    <p>${s}</p>`).join('\n')}
-  </section>` : ''}
-
-  <section class="pd-closing">
-    <h2>Make It Yours</h2>
-${closingSentences.map(s => `    <p>${s}</p>`).join('\n')}
-  </section>
-</article>`
-  }, [productName, fabricType, fabricQuality, values])
-
-  // Use generated
-  const useGenerated = useCallback(() => {
-    set('fullDescription', generatedHtml)
-  }, [generatedHtml, set])
+      const { data } = await res.json()
+      if (data?.html) {
+        set('fullDescription', data.html)
+        toast.success('Description generated! Review in the preview panel.')
+      } else {
+        toast.error('No description returned')
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Network error')
+    } finally {
+      setGenerating(false)
+    }
+  }, [productName, fabricType, fabricQuality, values.keyFeatures, values.usageOccasion, values.careInstructions, aiStyle, set])
 
   const copyHtml = useCallback(() => {
-    navigator.clipboard.writeText(generatedHtml)
+    navigator.clipboard.writeText(values.fullDescription)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
-  }, [generatedHtml])
+  }, [values.fullDescription])
 
-  // Preview CSS
-  const previewCss = `
-    * { box-sizing: border-box; }
-    .pd-desc { font-family: 'Segoe UI', system-ui, sans-serif; color: #1a1a2e; max-width: 720px; margin: 0 auto; padding: 32px 24px; line-height: 1.7; }
-    .pd-hero { display: flex; flex-direction: column; gap: 16px; margin-bottom: 32px; }
-    .pd-hero__img img { width: 100%; height: 400px; object-fit: cover; border-radius: 16px; }
-    .pd-hero h1 { font-size: 2rem; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
-    .pd-tagline { font-size: 1rem; color: #666; margin: 4px 0 0; font-style: italic; }
-    .pd-intro, .pd-story, .pd-features, .pd-occasions, .pd-quality, .pd-lifestyle, .pd-care, .pd-closing { margin-top: 36px; }
-    .pd-intro h2, .pd-story h2, .pd-features h2, .pd-occasions h2, .pd-quality h2, .pd-lifestyle h2, .pd-care h2, .pd-closing h2 { font-size: 1.3rem; font-weight: 700; margin-bottom: 12px; color: #2d2d4e; }
-    .pd-intro p, .pd-story p, .pd-features p, .pd-occasions p, .pd-quality p, .pd-lifestyle p, .pd-care p, .pd-closing p { font-size: 0.92rem; color: #444; margin-bottom: 10px; }
-    .pd-feature-list { padding-left: 20px; margin-top: 12px; }
-    .pd-feature-list li { margin-bottom: 8px; font-size: 0.9rem; }
-    .pd-gallery { margin: 32px 0; }
-    .pd-gallery__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-    .pd-gallery__img { width: 100%; height: 220px; object-fit: cover; border-radius: 12px; }
-    .pd-mid-img img, .pd-end-img img { width: 100%; height: 320px; object-fit: cover; border-radius: 14px; margin: 24px 0; }
-    .pd-tags { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
-    .pd-tag { display: inline-block; padding: 4px 14px; border-radius: 24px; background: #f0e6ff; color: #6b21a8; font-size: 0.8rem; font-weight: 600; }
-  `
+  const clearDescription = useCallback(() => {
+    set('fullDescription', '')
+    toast.success('Description cleared')
+  }, [set])
+
+  const iframeWidth = deviceMode === 'mobile' ? '375px' : '100%'
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Left: Inputs */}
+      {/* ═══ Left: Inputs ═══ */}
       <div className="space-y-5">
-        {/* Product Images for Blog */}
-        <SectionCard title="Product Images (for description blog)">
-          <p className="text-[10px] mb-2" style={{ color: 'var(--portal-muted)' }}>
-            Upload product images here. These will be embedded in the generated 50-sentence product description blog.
-          </p>
-          <ImageUploader
-            images={values.productImages}
-            onChange={imgs => set('productImages', imgs)}
-            maxImages={10}
-            folder="products/description"
-          />
-          {values.productImages.length > 0 && (
-            <p className="text-[10px] mt-2" style={{ color: 'var(--portal-muted)' }}>
-              <ImageIcon size={10} className="inline mr-1" />{values.productImages.filter(i => !i.uploading).length} images will be used in the blog
-            </p>
-          )}
-        </SectionCard>
+        {/* AI Generator Card */}
+        <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--portal-accent)', background: 'linear-gradient(180deg, rgba(214,51,108,0.04) 0%, var(--portal-surface) 100%)' }}>
+          <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--portal-border)' }}>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'var(--portal-accent)' }}>
+                <Wand2 size={15} className="text-white" />
+              </div>
+              <div>
+                <p className="text-sm font-bold" style={{ color: 'var(--portal-text)' }}>AI Description Writer</p>
+                <p className="text-[10px]" style={{ color: 'var(--portal-muted)' }}>Generate unique, SEO-friendly product descriptions</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="px-5 py-4 space-y-4">
+            {/* Style selector */}
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider mb-2 block" style={{ color: 'var(--portal-muted)' }}>Writing Style</label>
+              <div className="grid grid-cols-2 gap-2">
+                {STYLE_OPTIONS.map(s => (
+                  <button
+                    key={s.value}
+                    type="button"
+                    onClick={() => setAiStyle(s.value)}
+                    className="text-left px-3 py-2.5 rounded-xl transition-all text-xs"
+                    style={{
+                      background: aiStyle === s.value ? 'rgba(214,51,108,0.1)' : 'var(--portal-elevated)',
+                      border: `1px solid ${aiStyle === s.value ? 'var(--portal-accent)' : 'var(--portal-border)'}`,
+                      color: aiStyle === s.value ? 'var(--portal-accent)' : 'var(--portal-text)',
+                    }}
+                  >
+                    <span className="font-bold">{s.label}</span>
+                    <span className="block text-[9px] mt-0.5" style={{ color: 'var(--portal-muted)' }}>{s.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Generate button */}
+            <button
+              type="button"
+              onClick={generateAiDescription}
+              disabled={generating || !productName.trim()}
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-bold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40"
+              style={{ background: 'var(--portal-accent)', boxShadow: '0 4px 16px rgba(214,51,108,0.25)' }}
+            >
+              {generating ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles size={16} />
+                  Generate AI Description
+                </>
+              )}
+            </button>
+
+            {!productName.trim() && (
+              <p className="text-[10px] text-center" style={{ color: 'var(--portal-muted)' }}>
+                Fill in the product name in Basic Info first
+              </p>
+            )}
+          </div>
+        </div>
 
         <SectionCard title="Key Features">
+          <p className="text-[10px] mb-2" style={{ color: 'var(--portal-muted)' }}>
+            Add features before generating — they will be included in the AI description.
+          </p>
           {values.keyFeatures.length > 0 && (
             <div className="space-y-1.5 mb-3">
               {values.keyFeatures.map((f, i) => (
@@ -363,71 +363,160 @@ ${closingSentences.map(s => `    <p>${s}</p>`).join('\n')}
           </div>
         </SectionCard>
 
-        {/* Manual override */}
-        <SectionCard title="Manual Description Override">
-          <Field label="Full Description HTML" hint="Raw HTML (overrides generated blog)">
+        {/* Manual HTML edit */}
+        <SectionCard title="Edit Description HTML">
+          <Field label="Full Description HTML" hint="Edit the generated HTML directly">
             <textarea
               value={values.fullDescription}
               onChange={e => set('fullDescription', e.target.value)}
-              placeholder="Paste or edit HTML directly. Leave empty to use the generated 50-sentence blog above."
-              rows={6}
-              className="portal-input resize-none font-mono text-[11px]"
+              placeholder="Click 'Generate AI Description' above, or paste/write HTML manually."
+              rows={8}
+              className="portal-input resize-y font-mono text-[11px]"
             />
           </Field>
         </SectionCard>
       </div>
 
-      {/* Right: Live Preview */}
+      {/* ═══ Right: Live Preview ═══ */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        {/* Preview controls */}
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          {/* View mode: Preview / HTML */}
+          <div className="flex items-center gap-1 p-0.5 rounded-xl" style={{ background: 'var(--portal-elevated)' }}>
             <button
               type="button"
-              onClick={() => setShowPreview(true)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${showPreview ? 'bg-[var(--portal-accent)]/10 text-[var(--portal-accent)]' : ''}`}
-              style={{ color: showPreview ? undefined : 'var(--portal-muted)' }}
+              onClick={() => setViewMode('preview')}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+              style={{
+                background: viewMode === 'preview' ? 'var(--portal-surface)' : 'transparent',
+                color: viewMode === 'preview' ? 'var(--portal-accent)' : 'var(--portal-muted)',
+                boxShadow: viewMode === 'preview' ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
+              }}
             >
               <Eye size={12} /> Preview
             </button>
             <button
               type="button"
-              onClick={() => setShowPreview(false)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${!showPreview ? 'bg-[var(--portal-accent)]/10 text-[var(--portal-accent)]' : ''}`}
-              style={{ color: !showPreview ? undefined : 'var(--portal-muted)' }}
+              onClick={() => setViewMode('html')}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+              style={{
+                background: viewMode === 'html' ? 'var(--portal-surface)' : 'transparent',
+                color: viewMode === 'html' ? 'var(--portal-accent)' : 'var(--portal-muted)',
+                boxShadow: viewMode === 'html' ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
+              }}
             >
               <Code size={12} /> HTML
             </button>
           </div>
-          <div className="flex items-center gap-1">
-            <button type="button" onClick={copyHtml} className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium hover:bg-[var(--portal-elevated)]" style={{ color: 'var(--portal-muted)' }}>
-              {copied ? <Check size={10} className="text-green-400" /> : <Copy size={10} />} {copied ? 'Copied' : 'Copy'}
-            </button>
-            <button type="button" onClick={useGenerated} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-[var(--portal-accent)] text-white">
-              <Sparkles size={10} /> Use This Blog
+
+          {/* Device toggle + actions */}
+          <div className="flex items-center gap-2">
+            {viewMode === 'preview' && (
+              <div className="flex items-center gap-1 p-0.5 rounded-xl" style={{ background: 'var(--portal-elevated)' }}>
+                <button
+                  type="button"
+                  onClick={() => setDeviceMode('desktop')}
+                  className="p-1.5 rounded-lg transition-all"
+                  style={{
+                    background: deviceMode === 'desktop' ? 'var(--portal-surface)' : 'transparent',
+                    color: deviceMode === 'desktop' ? 'var(--portal-accent)' : 'var(--portal-muted)',
+                  }}
+                  title="Desktop preview"
+                >
+                  <Monitor size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeviceMode('mobile')}
+                  className="p-1.5 rounded-lg transition-all"
+                  style={{
+                    background: deviceMode === 'mobile' ? 'var(--portal-surface)' : 'transparent',
+                    color: deviceMode === 'mobile' ? 'var(--portal-accent)' : 'var(--portal-muted)',
+                  }}
+                  title="Mobile preview"
+                >
+                  <Smartphone size={14} />
+                </button>
+              </div>
+            )}
+
+            {values.fullDescription && (
+              <button type="button" onClick={clearDescription} className="p-1.5 rounded-lg hover:bg-white/5 transition-all" style={{ color: 'var(--portal-muted)' }} title="Clear">
+                <RotateCcw size={13} />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={copyHtml}
+              disabled={!values.fullDescription}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition-all disabled:opacity-30"
+              style={{ background: 'var(--portal-elevated)', color: 'var(--portal-muted)' }}
+            >
+              {copied ? <Check size={10} className="text-green-400" /> : <Copy size={10} />}
+              {copied ? 'Copied' : 'Copy'}
             </button>
           </div>
         </div>
 
-        <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--portal-border)', minHeight: 600 }}>
-          {showPreview ? (
-            <iframe
-              srcDoc={`<!DOCTYPE html><html><head><style>${previewCss}</style></head><body style="margin:0;padding:0;background:#fff">${values.fullDescription || generatedHtml}</body></html>`}
-              className="w-full border-0"
-              style={{ minHeight: 600, background: '#fff' }}
-              title="Description Blog Preview"
-              sandbox="allow-same-origin"
-            />
+        {/* Preview frame */}
+        <div
+          className="rounded-2xl overflow-hidden transition-all"
+          style={{
+            border: '1px solid var(--portal-border)',
+            minHeight: 650,
+            background: viewMode === 'preview' ? '#f5f5f5' : 'var(--portal-elevated)',
+          }}
+        >
+          {!values.fullDescription ? (
+            <div className="flex flex-col items-center justify-center h-full py-32">
+              <Sparkles size={36} style={{ color: 'var(--portal-muted)', opacity: 0.2 }} />
+              <p className="text-sm font-medium mt-3" style={{ color: 'var(--portal-muted)' }}>No description yet</p>
+              <p className="text-[10px] mt-1" style={{ color: 'var(--portal-muted)', opacity: 0.6 }}>
+                Use the AI generator or write HTML manually
+              </p>
+            </div>
+          ) : viewMode === 'preview' ? (
+            <div className="flex justify-center p-4" style={{ background: '#f0f0f0' }}>
+              <div
+                className="transition-all duration-300 rounded-xl overflow-hidden shadow-lg"
+                style={{
+                  width: iframeWidth,
+                  maxWidth: '100%',
+                  border: deviceMode === 'mobile' ? '8px solid #222' : 'none',
+                  borderRadius: deviceMode === 'mobile' ? '24px' : '12px',
+                }}
+              >
+                {deviceMode === 'mobile' && (
+                  <div className="h-6 flex items-center justify-center" style={{ background: '#222' }}>
+                    <div className="w-16 h-1 rounded-full bg-gray-600" />
+                  </div>
+                )}
+                <iframe
+                  srcDoc={`<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${PREVIEW_CSS}</style></head><body style="margin:0;padding:0;background:#fff">${values.fullDescription}</body></html>`}
+                  className="w-full border-0"
+                  style={{ minHeight: deviceMode === 'mobile' ? 580 : 620, background: '#fff' }}
+                  title="Description Preview"
+                  sandbox="allow-same-origin"
+                />
+              </div>
+            </div>
           ) : (
-            <pre className="p-4 text-[11px] font-mono overflow-auto" style={{ background: 'var(--portal-elevated)', color: 'var(--portal-text)', minHeight: 600, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-              {values.fullDescription || generatedHtml}
+            <pre
+              className="p-4 text-[11px] font-mono overflow-auto"
+              style={{ color: 'var(--portal-text)', minHeight: 620, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}
+            >
+              {values.fullDescription}
             </pre>
           )}
         </div>
+
+        {/* Device label */}
+        {viewMode === 'preview' && values.fullDescription && (
+          <p className="text-center text-[9px] font-medium" style={{ color: 'var(--portal-muted)' }}>
+            {deviceMode === 'mobile' ? 'Mobile Preview (375px)' : 'Desktop Preview'} — This is how it appears on the storefront
+          </p>
+        )}
       </div>
     </div>
   )
-}
-
-function esc(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }

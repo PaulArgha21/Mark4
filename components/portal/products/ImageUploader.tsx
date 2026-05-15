@@ -3,6 +3,7 @@ import { useState, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import { Upload, X, GripVertical, Star, Loader2 } from 'lucide-react'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
+import { toast } from 'sonner'
 
 export interface UploadedImage {
   id: string
@@ -31,20 +32,34 @@ export function ImageUploader({ images, onChange, maxImages = 10, folder = 'prod
       const res = await fetch('/api/portal/media/upload-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ contentType: file.type, folder }),
       })
-      if (!res.ok) return null
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null)
+        toast.error(`Upload URL failed: ${errData?.message || res.statusText}`)
+        return null
+      }
       const { data } = await res.json()
+      if (!data?.uploadUrl) {
+        toast.error('Upload URL missing from response — check R2 config')
+        return null
+      }
 
       // Upload to R2
-      await fetch(data.uploadUrl, {
+      const uploadRes = await fetch(data.uploadUrl, {
         method: 'PUT',
         headers: { 'Content-Type': file.type },
         body: file,
       })
+      if (!uploadRes.ok) {
+        toast.error(`R2 upload failed: ${uploadRes.statusText}`)
+        return null
+      }
 
       return data.publicUrl
-    } catch {
+    } catch (err) {
+      toast.error(`Image upload error: ${err instanceof Error ? err.message : 'Network error'}`)
       return null
     }
   }, [folder])
@@ -71,6 +86,8 @@ export function ImageUploader({ images, onChange, maxImages = 10, folder = 'prod
 
     // Upload each file
     const uploaded: UploadedImage[] = [...images]
+    let successCount = 0
+    let failCount = 0
     for (const placeholder of placeholders) {
       const url = await uploadFile(placeholder.file!)
       if (url) {
@@ -80,9 +97,14 @@ export function ImageUploader({ images, onChange, maxImages = 10, folder = 'prod
           file: undefined,
           uploading: false,
         })
+        successCount++
+      } else {
+        failCount++
       }
     }
     onChange(uploaded)
+    if (successCount > 0) toast.success(`${successCount} image${successCount > 1 ? 's' : ''} uploaded`)
+    if (failCount > 0) toast.error(`${failCount} image${failCount > 1 ? 's' : ''} failed to upload`)
   }, [images, maxImages, onChange, uploadFile])
 
   const handleDrop = useCallback((e: React.DragEvent) => {

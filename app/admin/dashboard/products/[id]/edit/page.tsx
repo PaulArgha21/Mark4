@@ -19,10 +19,11 @@ import { toast } from 'sonner'
 
 const fetcher = (url: string) => fetch(url, { credentials: 'include' }).then(r => r.json()).then(r => r.data)
 
-async function readErrorMessage(res: Response, fallback: string) {
+async function readErrorMessage(res: Response, fallback: string): Promise<string> {
   try {
     const data = await res.json()
-    return data?.message || data?.error || data?.details?.message || fallback
+    const msg = data?.message || data?.error || data?.details?.message || fallback
+    return typeof msg === 'string' ? msg : JSON.stringify(msg)
   } catch {
     return fallback
   }
@@ -48,7 +49,7 @@ export default function EditProductPage() {
   const params = useParams()
   const productId = params.id as string
 
-  const { data: product, isLoading: productLoading, mutate } = useSWR(`/api/portal/products/${productId}`, fetcher)
+  const { data: product, isLoading: productLoading, error: productError, mutate } = useSWR(`/api/portal/products/${productId}`, fetcher)
 
   const [saving, setSaving] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -285,26 +286,30 @@ export default function EditProductPage() {
         return
       }
 
-      // Upload variant images
-      const allImages = variants.flatMap(v => v.images.filter(img => !img.uploading))
-      if (allImages.length > 0) {
-        await fetch(`/api/portal/products/${productId}/media`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            media: allImages.map((img, i) => ({
-              url: img.url,
-              isPrimary: i === 0,
-              sortOrder: i,
-            })),
-          }),
-        })
+      // Upload variant images (non-blocking, don't crash on failure)
+      try {
+        const allImages = variants.flatMap(v => v.images.filter(img => !img.uploading && img.url && !img.url.startsWith('blob:')))
+        if (allImages.length > 0) {
+          await fetch(`/api/portal/products/${productId}/media`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              media: allImages.map((img, i) => ({
+                url: img.url,
+                isPrimary: i === 0,
+                sortOrder: i,
+              })),
+            }),
+          })
+        }
+      } catch (mediaErr) {
+        console.warn('Media upload failed (non-critical):', mediaErr)
       }
 
       toast.success('Product updated successfully')
       setLastSaved(new Date().toLocaleTimeString())
-      mutate()
+      try { await mutate() } catch { /* SWR revalidation error — ignore, data is saved */ }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Something went wrong while saving the product.'
       setSaveError(msg)
@@ -325,12 +330,12 @@ export default function EditProductPage() {
     )
   }
 
-  if (!product) {
+  if (!product || productError) {
     return (
       <PortalShell>
         <div className="flex flex-col items-center justify-center h-64 gap-3">
           <AlertTriangle size={28} style={{ color: 'var(--portal-muted)' }} />
-          <p className="text-sm font-medium" style={{ color: 'var(--portal-muted)' }}>Product not found</p>
+          <p className="text-sm font-medium" style={{ color: 'var(--portal-muted)' }}>{productError ? 'Failed to load product' : 'Product not found'}</p>
           <button onClick={() => router.back()} className="text-xs font-semibold px-4 py-2 rounded-xl" style={{ color: 'var(--portal-accent)', background: 'var(--portal-elevated)' }}>
             Go back
           </button>
@@ -466,8 +471,8 @@ export default function EditProductPage() {
                 {[
                   { label: 'Product ID', value: product.id },
                   { label: 'Slug', value: product.slug },
-                  { label: 'Created', value: new Date(product.createdAt).toLocaleDateString() },
-                  { label: 'Updated', value: new Date(product.updatedAt).toLocaleDateString() },
+                  { label: 'Created', value: product.createdAt ? new Date(product.createdAt).toLocaleDateString() : '—' },
+                  { label: 'Updated', value: product.updatedAt ? new Date(product.updatedAt).toLocaleDateString() : '—' },
                 ].map(item => (
                   <div key={item.label} className="px-3 py-2 rounded-xl" style={{ background: 'var(--portal-elevated)' }}>
                     <p className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: 'var(--portal-muted)' }}>{item.label}</p>
